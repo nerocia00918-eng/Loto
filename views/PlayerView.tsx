@@ -20,6 +20,7 @@ const PlayerView: React.FC<PlayerViewProps> = ({
   playerName, onBack, currentNumber, calledNumbers, messages, onSendMessage, onWin, gameStatus 
 }) => {
   const [boards, setBoards] = useState<Board[]>([]);
+  const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
 
   // Generate boards once on mount
   useEffect(() => {
@@ -105,6 +106,14 @@ const PlayerView: React.FC<PlayerViewProps> = ({
         </div>
         
         <div className="flex gap-2 items-center">
+            <button 
+                onClick={() => setLayoutMode(prev => prev === 'grid' ? 'list' : 'grid')}
+                className="bg-blue-50 text-blue-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-blue-100 hidden sm:block border border-blue-200"
+                title="Đổi kiểu xem"
+            >
+                {layoutMode === 'grid' ? 'xếp Dọc' : 'xếp Lưới'}
+            </button>
+
              <button onClick={resetPlayer} className="bg-gray-100 text-gray-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-gray-200 hidden sm:block">
                 Đổi Vé
             </button>
@@ -121,7 +130,11 @@ const PlayerView: React.FC<PlayerViewProps> = ({
       <div className="flex flex-col lg:flex-row gap-4 p-2 sm:p-4 flex-1 overflow-hidden">
         {/* Tickets Area */}
         <div className="flex-1 overflow-y-auto pb-24 lg:pb-0 scrollbar-thin">
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 justify-items-center pb-8 content-start">
+            <div className={
+                layoutMode === 'grid' 
+                ? "grid grid-cols-1 xl:grid-cols-2 gap-4 justify-items-center pb-8 content-start"
+                : "flex flex-col gap-4 items-center pb-8"
+            }>
                 {boards.map((board, idx) => (
                     <div key={board.id} className="w-full max-w-md bg-white p-2 rounded-xl shadow-md border border-gray-100">
                         <div className="flex justify-between items-end mb-2 px-2 border-b border-gray-100 pb-1">

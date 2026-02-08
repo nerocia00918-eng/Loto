@@ -64,6 +64,7 @@ const HostView: React.FC<HostViewProps> = ({
   // Host Playing State
   const [isHostPlaying, setIsHostPlaying] = useState(false);
   const [hostBoards, setHostBoards] = useState<Board[]>([]);
+  const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
 
   // Auto Bot State
   const [isAutoMode, setIsAutoMode] = useState(false);
@@ -403,7 +404,15 @@ const HostView: React.FC<HostViewProps> = ({
           {isHostPlaying && (
             <div className="lg:col-span-5 flex flex-col h-full overflow-hidden bg-white rounded-2xl border-2 border-loto-yellow/30 shadow-sm relative">
                <div className="bg-loto-yellow/20 p-2 flex justify-between items-center px-4 border-b border-loto-yellow/30">
-                  <span className="font-bold text-loto-red uppercase text-sm">Vé của Host</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-loto-red uppercase text-sm">Vé của Host</span>
+                    <button 
+                        onClick={() => setLayoutMode(prev => prev === 'grid' ? 'list' : 'grid')}
+                        className="bg-white/50 hover:bg-white text-gray-700 text-[10px] px-2 py-1 rounded border border-gray-300"
+                    >
+                        {layoutMode === 'grid' ? 'Xếp dọc' : 'Lưới'}
+                    </button>
+                  </div>
                   <button 
                     onClick={handleHostKinh}
                     className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-red-900 px-4 py-1 rounded-full text-sm font-black shadow hover:from-yellow-300 hover:to-yellow-400 animate-pulse-fast border border-white"
@@ -412,7 +421,11 @@ const HostView: React.FC<HostViewProps> = ({
                   </button>
                </div>
                <div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
-                 <div className="flex flex-col gap-4 items-center">
+                 <div className={
+                     layoutMode === 'grid' 
+                     ? "grid grid-cols-1 xl:grid-cols-2 gap-4 justify-items-center" 
+                     : "flex flex-col gap-4 items-center"
+                 }>
                    {hostBoards.map((board) => (
                       <div key={board.id} className="w-full max-w-md transform transition-all hover:scale-[1.01] bg-white rounded-lg shadow-md border border-gray-100">
                          <div className="flex justify-between items-center px-3 py-1 bg-gray-50 rounded-t-lg border-b">
