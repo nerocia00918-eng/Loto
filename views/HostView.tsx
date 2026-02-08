@@ -305,24 +305,38 @@ const HostView: React.FC<HostViewProps> = ({
 
       {/* VERIFICATION MODAL */}
       {pendingClaim && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
-              <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg border-4 border-loto-yellow animate-bounce-short">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4 overflow-y-auto py-10">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl border-4 border-loto-yellow relative flex flex-col max-h-full">
                   <h2 className="text-3xl font-black text-loto-red text-center mb-2">KIỂM TRA VÉ!</h2>
                   <p className="text-center text-gray-600 mb-4">
                       Người chơi <strong className="text-blue-600 text-lg">{pendingClaim.playerName}</strong> đang Kinh.
                       <br/>
-                      <span className="text-sm italic">(Hệ thống đã tự động tô màu các số có trong bảng kết quả)</span>
+                      <span className="text-xs italic text-gray-400">(Hệ thống tự động tô màu các số có trong bảng kết quả trên vé)</span>
                   </p>
                   
-                  <div className="bg-gray-100 p-2 rounded-lg mb-6">
-                      <LotoTicket 
-                        board={getVerifiedBoard(pendingClaim.board)} 
-                        onCellClick={() => {}} 
-                        readOnly={true} 
-                      />
+                  <div className="flex-1 overflow-y-auto pr-2 space-y-6">
+                      {/* Ticket being verified */}
+                      <div>
+                          <h4 className="font-bold text-gray-700 mb-2 text-center uppercase text-sm">Vé cần kiểm tra</h4>
+                          <div className="bg-gray-100 p-2 rounded-lg flex justify-center">
+                              <LotoTicket 
+                                board={getVerifiedBoard(pendingClaim.board)} 
+                                onCellClick={() => {}} 
+                                readOnly={true} 
+                              />
+                          </div>
+                      </div>
+
+                      {/* Reference Board */}
+                      <div>
+                          <h4 className="font-bold text-gray-700 mb-2 text-center uppercase text-sm">Bảng số đã gọi (Để dò lại)</h4>
+                          <div className="border border-gray-200 rounded-xl overflow-hidden">
+                             <HostBoard calledNumbers={calledNumbers} />
+                          </div>
+                      </div>
                   </div>
 
-                  <div className="flex gap-4 justify-center">
+                  <div className="flex gap-4 justify-center mt-6 pt-4 border-t border-gray-100">
                       <button 
                         onClick={() => onResolveClaim(false)}
                         className="flex-1 bg-gray-200 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-300 transition-colors"
@@ -331,7 +345,7 @@ const HostView: React.FC<HostViewProps> = ({
                       </button>
                       <button 
                         onClick={() => onResolveClaim(true)}
-                        className="flex-1 bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-700 shadow-lg animate-pulse"
+                        className="flex-1 bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-700 shadow-lg"
                       >
                           Xác nhận Thắng ✅
                       </button>
