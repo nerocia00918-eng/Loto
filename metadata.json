@@ -1,0 +1,7 @@
+{
+  "name": "Loto Bingo",
+  "description": "Ứng dụng chơi Lô tô (Bingo Việt Nam) cùng bạn bè. Một người làm cái (Host) gọi số với hỗ trợ MC AI, những người khác tạo vé để chơi.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
