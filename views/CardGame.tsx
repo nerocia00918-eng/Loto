@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GameRole, GameStatus, PlayerInfo, PeerMessage, CardPlayer, Card, ChatMessage } from '../types';
+import { GameRole, GameStatus, PeerMessage, CardPlayer, Card, ChatMessage } from '../types';
 import { peerService } from '../services/peerService';
 import { createDeck, shuffleDeck, calculateScore } from '../utils/cardLogic';
 import PlayingCard from '../components/PlayingCard';
@@ -24,24 +24,15 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [winnerId, setWinnerId] = useState<string | null>(null);
 
-  // Refs for stale closure fix in PeerJS callbacks
+  // Refs
   const playersRef = useRef<CardPlayer[]>([]);
   const gameStatusRef = useRef<GameStatus>(GameStatus.LOBBY);
   const autoTimeoutRef = useRef<number | null>(null);
   const winnerIdRef = useRef<string | null>(null);
 
-  // Sync state to refs
-  useEffect(() => {
-    playersRef.current = players;
-  }, [players]);
-
-  useEffect(() => {
-    gameStatusRef.current = gameStatus;
-  }, [gameStatus]);
-
-  useEffect(() => {
-      winnerIdRef.current = winnerId;
-  }, [winnerId]);
+  useEffect(() => { playersRef.current = players; }, [players]);
+  useEffect(() => { gameStatusRef.current = gameStatus; }, [gameStatus]);
+  useEffect(() => { winnerIdRef.current = winnerId; }, [winnerId]);
 
   const addMessage = (sender: string, text: string, isSystem = false) => {
     const newMessage: ChatMessage = {
@@ -55,12 +46,27 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
     return newMessage;
   };
 
+  // --- EXIT LOGIC ---
+  const handleExit = () => {
+      if (confirm('Bạn muốn thoát phòng?')) {
+          try {
+              peerService.destroy();
+          } catch (e) {
+              console.error(e);
+          }
+          setRole(GameRole.NONE);
+          setPlayers([]);
+          setMessages([]);
+          setGameStatus(GameStatus.LOBBY);
+          setWinnerId(null);
+      }
+  };
+
   // --- HOST LOGIC ---
   const startHost = () => {
     if(!myName) return alert("Nhập tên Host!");
     setRole(GameRole.HOST);
     
-    // Initial Host Player
     const hostPlayer: CardPlayer = { id: 'host', name: myName, isReady: true, hand: [], isRevealed: false };
     setPlayers([hostPlayer]);
     playersRef.current = [hostPlayer]; 
@@ -82,22 +88,22 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
         const newPlayer: CardPlayer = { id: conn.peer, name: data.name, isReady: true, hand: [], isRevealed: false };
         
         setPlayers(prev => {
-           if (prev.find(p => p.id === newPlayer.id)) return prev;
+           // Prevent duplicates strictly
+           if (prev.some(p => p.id === newPlayer.id)) return prev;
            return [...prev, newPlayer];
         });
 
         addMessage("Hệ thống", `${data.name} đã vào bàn!`, true);
         
-        // Respond with current state
-        // Need a slight delay or rely on ref to ensure we send the included player list
+        // Sync with new player
         setTimeout(() => {
-            const currentList = playersRef.current.find(p => p.id === newPlayer.id) 
+            const currentList = playersRef.current.some(p => p.id === newPlayer.id) 
                 ? playersRef.current 
                 : [...playersRef.current, newPlayer];
             
             conn.send({ type: 'CARD_WELCOME', players: currentList, gameState: gameStatusRef.current });
             broadcastUpdate(currentList);
-        }, 100);
+        }, 200);
         break;
       
       case 'CHAT':
@@ -106,7 +112,6 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
         break;
         
       case 'CARD_REVEAL':
-        // A player revealed their hand
         setPlayers(prev => {
             const updated = prev.map(p => {
                 if(p.id === data.peerId) {
@@ -116,12 +121,10 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                 return p;
             });
             
-            // DYNAMIC WINNER CALCULATION (King of the Hill)
             setTimeout(() => {
                 calculateLeader(updated, data.peerId);
                 broadcastUpdate(updated);
             }, 0);
-            
             return updated;
         });
         break;
@@ -136,13 +139,13 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
       };
       peerService.broadcast(msg);
       
-      // Also broadcast winner if exists
       if (winnerIdRef.current) {
           peerService.broadcast({ type: 'CARD_RESULT', winnerId: winnerIdRef.current });
       }
   };
 
   const handleDeal = () => {
+     // Allow single player for testing
      if (players.length < 1) return alert("Cần ít nhất 1 người!"); 
      
      setGameStatus(GameStatus.PLAYING);
@@ -153,7 +156,6 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
      // Deal 3 cards to each
      const hands: Record<string, Card[]> = {};
      const newPlayers = players.map(p => {
-         // Create 3 hidden cards
          const hand = [deck.pop()!, deck.pop()!, deck.pop()!].map(c => ({...c, isHidden: true}));
          hands[p.id] = hand;
          return { ...p, hand, isRevealed: false, score: undefined, scoreText: undefined };
@@ -161,14 +163,13 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
      
      setPlayers(newPlayers);
      
-     // Send private hands to peers
+     // Send private hands
      newPlayers.forEach(p => {
          if (p.id !== 'host') {
              peerService.sendToPlayer(p.id, { type: 'CARD_DEAL', hands: { [p.id]: hands[p.id] } });
          }
      });
 
-     // Broadcast public state (everyone gets hidden cards visually)
      peerService.broadcast({ type: 'START_GAME' });
      addMessage("Dealer", isAutoMode ? "Bot đã chia bài! Đang tự động lật..." : "Đã chia bài! Mời nặn bài.", true);
 
@@ -176,41 +177,33 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
          if (autoTimeoutRef.current) clearTimeout(autoTimeoutRef.current);
          autoTimeoutRef.current = setTimeout(() => {
              handleRevealAll(newPlayers);
-         }, 3000); // 3s delay for suspense
+         }, 3000);
      }
   };
 
   const handleRevealAll = (currentPlayers = players) => {
-      // Force reveal everyone
       const revealedPlayers = currentPlayers.map(p => {
            const fullHand = p.hand.map(c => ({...c, isHidden: false}));
            const { score, text } = calculateScore(fullHand);
            return { ...p, hand: fullHand, isRevealed: true, score, scoreText: text };
       });
       setPlayers(revealedPlayers);
-      
-      // Calculate final winner
       calculateLeader(revealedPlayers, 'ALL');
-      
       broadcastUpdate(revealedPlayers);
       peerService.broadcast({ type: 'CARD_REVEAL_ALL' });
       
       if (isAutoMode) {
           if (autoTimeoutRef.current) clearTimeout(autoTimeoutRef.current);
           autoTimeoutRef.current = setTimeout(() => {
-              handleDeal(); // Loop
+              handleDeal();
           }, 5000);
       }
   };
 
-  // Logic to find who is winning *right now* among revealed players
   const calculateLeader = (currentPlayers: CardPlayer[], newlyRevealedId: string) => {
-      // Get all revealed players
       const revealed = currentPlayers.filter(p => p.isRevealed && p.score !== undefined);
-      
       if (revealed.length === 0) return;
 
-      // Find max score
       let maxScore = -1;
       let winners: CardPlayer[] = [];
 
@@ -224,29 +217,18 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
           }
       });
 
-      // Simple rule: If tie, the latest one or keeping existing? 
-      // Usually keeping existing leader is better for stability, unless new one is strictly higher.
-      // But user wants notification when *that person* presses show.
-      // So if I reveal and I match the high score, I join the winners circle.
-      
       if (winners.length > 0) {
-          // If the newly revealed player is among the winners, announce them specifically
           const newChampion = winners.find(w => w.id === newlyRevealedId);
-          
           if (newChampion) {
                setWinnerId(newChampion.id);
                addMessage("Hệ thống", `🔥 ${newChampion.name} vừa lật bài: ${newChampion.scoreText}! (Dẫn đầu)`, true);
                peerService.broadcast({ type: 'CARD_RESULT', winnerId: newChampion.id });
           } else if (newlyRevealedId === 'ALL') {
-               // Auto mode or Reveal All case
                const w = winners[0];
                setWinnerId(w.id);
                addMessage("Hệ thống", `🏆 ${w.name} thắng với ${w.scoreText}!`, true);
                peerService.broadcast({ type: 'CARD_RESULT', winnerId: w.id });
           } else {
-               // Someone revealed but didn't beat the leader
-               // Just keep current winnerId
-               // Optional: Check if the current winnerId is still valid? Yes, logic above handles it.
                const currentLeader = winners[0];
                if (currentLeader.id !== winnerIdRef.current) {
                    setWinnerId(currentLeader.id);
@@ -274,11 +256,9 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   const handlePlayerData = (data: PeerMessage) => {
       switch (data.type) {
           case 'CARD_WELCOME':
-              // Merge hands carefully. If I have a private hand, keep it.
               setPlayers(prev => {
                   return data.players.map(serverP => {
                       const localP = prev.find(local => local.id === serverP.id);
-                      // If it's ME, and I have cards, keep my local 'isHidden' state unless server says revealed
                       if (serverP.id === peerService.myId && localP?.hand?.length && !serverP.isRevealed) {
                           return { ...serverP, hand: localP.hand }; 
                       }
@@ -292,13 +272,9 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
               setWinnerId(null);
               break;
           case 'CARD_DEAL':
-              // My private hand (all hidden initially)
               const myHand = data.hands[peerService.myId].map(c => ({ ...c, isHidden: true }));
               setPlayers(prev => prev.map(p => p.id === peerService.myId ? { ...p, hand: myHand, isRevealed: false } : p));
               break;
-          case 'CARD_REVEAL_ALL':
-               // Server forced reveal. We trust the next CARD_WELCOME/Update to show cards.
-               break;
           case 'CARD_RESULT':
               setWinnerId(data.winnerId);
               break;
@@ -317,75 +293,57 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
       }
   };
 
-  // --- CARD INTERACTION (FLIP) ---
   const handleCardClick = (playerIndex: number, cardIndex: number) => {
       const targetPlayer = players[playerIndex];
       const isMe = targetPlayer.id === (role === GameRole.HOST ? 'host' : peerService.myId);
       
-      // Only allow clicking my own cards
       if (!isMe) return;
-      if (targetPlayer.isRevealed) return; // Already fully revealed
+      if (targetPlayer.isRevealed) return;
       if (gameStatus !== GameStatus.PLAYING) return;
 
-      // Toggle hidden state locally
       const newHand = [...targetPlayer.hand];
       const clickedCard = newHand[cardIndex];
-      
-      if (!clickedCard.isHidden) return; // Already open
+      if (!clickedCard.isHidden) return;
 
-      // Flip it open
       newHand[cardIndex] = { ...clickedCard, isHidden: false };
-
-      // Check if all cards are now open
       const allOpen = newHand.every(c => !c.isHidden);
       
-      // Update local state
       setPlayers(prev => {
           const newPlayers = [...prev];
           newPlayers[playerIndex] = { 
               ...targetPlayer, 
               hand: newHand,
-              isRevealed: allOpen // Mark as revealed if all open
+              isRevealed: allOpen
           };
           
-          // If HOST, calculate score immediately and broadcast if all open
           if (role === GameRole.HOST && allOpen) {
               const { score, text } = calculateScore(newHand);
               newPlayers[playerIndex].score = score;
               newPlayers[playerIndex].scoreText = text;
               
-              // Broadcast
               setTimeout(() => {
                   calculateLeader(newPlayers, 'host');
                   broadcastUpdate(newPlayers);
-                  // Notify peers that host revealed (for specific animation triggers if needed)
                   peerService.broadcast({ type: 'CARD_REVEAL', peerId: 'host', hand: newHand });
               }, 0);
           }
-          
           return newPlayers;
       });
 
-      // If PLAYER and all open, send to Host
       if (role === GameRole.PLAYER && allOpen) {
           peerService.sendToHost({ type: 'CARD_REVEAL', peerId: peerService.myId, hand: newHand });
       }
   };
 
-  // --- CLEANUP ---
-  useEffect(() => {
-      return () => {
-          if (autoTimeoutRef.current) clearTimeout(autoTimeoutRef.current);
-      }
-  }, []);
-
   // --- UI RENDER ---
 
-  // LOBBY / SETUP (Keep existing code, just return normally)
+  // LOBBY SETUP
   if (role === GameRole.NONE) {
       return (
         <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-green-900 text-white font-sans relative">
-           <button onClick={onBackToMenu} className="absolute top-4 left-4 text-gray-300 hover:text-white font-bold">&larr; Menu</button>
+           <button onClick={onBackToMenu} className="absolute top-4 left-4 text-gray-300 hover:text-white font-bold flex items-center gap-2 bg-black/20 px-4 py-2 rounded-full">
+                <span>&larr;</span> Menu
+           </button>
            <h1 className="text-6xl font-black text-yellow-400 mb-8 drop-shadow-md">BÀI CÀO</h1>
            
            <div className="flex flex-col md:flex-row gap-8 w-full max-w-4xl">
@@ -398,9 +356,9 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                     value={myName} 
                     onChange={e => setMyName(e.target.value)}
                  />
-                 <label className="flex items-center gap-2 mb-4 cursor-pointer select-none bg-green-900/50 p-2 rounded">
+                 <label className="flex items-center gap-2 mb-4 cursor-pointer select-none bg-green-900/50 p-2 rounded w-full justify-center hover:bg-green-900/80 transition-colors">
                     <input type="checkbox" checked={isAutoMode} onChange={e => setIsAutoMode(e.target.checked)} className="w-5 h-5 accent-yellow-500" />
-                    <span>Chế độ Bot tự chia & lật</span>
+                    <span>Bot tự chia & lật</span>
                  </label>
                  <button onClick={startHost} className="w-full bg-yellow-500 text-black font-bold py-3 rounded hover:bg-yellow-400">
                     Làm Cái
@@ -431,107 +389,130 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
       );
   }
 
-  // GAME BOARD
+  // PLAYING SCREEN - FIXED LAYOUT WITH DVH
   return (
-      <div className="min-h-screen bg-green-900 text-white overflow-hidden flex flex-col relative">
-          {/* Header */}
-          <div className="p-3 bg-green-950 flex justify-between items-center shadow-md z-20">
-              <div className="flex items-center gap-4">
-                 <button onClick={() => { if(confirm('Thoát?')) { peerService.destroy(); setRole(GameRole.NONE); }}} className="bg-red-600 px-3 py-1 rounded text-sm font-bold">Thoát</button>
+      <div className="h-[100dvh] w-screen bg-green-900 text-white flex flex-col overflow-hidden">
+          
+          {/* 1. TOP HEADER (Fixed Height) */}
+          <div className="h-14 bg-green-950 flex items-center justify-between px-3 shadow-md z-50 shrink-0 border-b border-green-800">
+              <div className="flex items-center gap-3">
+                 <button 
+                    onClick={handleExit} 
+                    className="bg-red-600 hover:bg-red-500 text-white px-4 py-1.5 rounded font-bold text-sm shadow border border-red-400 transition-colors"
+                 >
+                    THOÁT
+                 </button>
                  <div className="flex flex-col">
-                    <span className="font-bold text-yellow-400">Phòng: {roomId}</span>
-                    <span className="text-xs text-gray-300 flex items-center gap-1">
-                        {isAutoMode ? '🤖 Bot' : '👤 Nặn Bài'}
-                        {gameStatus === GameStatus.LOBBY && <span className="text-yellow-200 animate-pulse">- Chờ chia bài...</span>}
+                    <span className="font-bold text-yellow-400 text-sm leading-tight">Phòng: {roomId}</span>
+                    <span className="text-[10px] text-gray-400 leading-tight">
+                        {gameStatus === GameStatus.LOBBY ? 'Đang chờ...' : 'Đang chơi'}
                     </span>
                  </div>
               </div>
-              
-              {role === GameRole.HOST && (
-                  <div className="flex gap-2">
-                     <button 
-                        onClick={handleDeal} 
-                        disabled={isAutoMode && gameStatus === GameStatus.PLAYING}
-                        className={`
-                            px-4 py-2 rounded font-bold transition-all shadow-lg
-                            ${(isAutoMode && gameStatus === GameStatus.PLAYING) 
-                                ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
-                                : 'bg-yellow-500 text-black hover:bg-yellow-400 hover:scale-105 active:scale-95 animate-pulse-fast'
-                            }
-                        `}
-                     >
-                        {gameStatus === GameStatus.LOBBY ? 'BẮT ĐẦU (CHIA)' : 'CHIA VÁN MỚI'}
-                     </button>
-                     
-                     {!isAutoMode && (
-                        <button 
-                             onClick={() => handleRevealAll()}
-                             className="bg-blue-600 px-4 py-2 rounded font-bold hover:bg-blue-500 shadow-lg text-xs sm:text-base"
-                        >
-                             LẬT HẾT
-                        </button>
-                     )}
-                  </div>
-              )}
+              <div className="text-sm font-bold bg-green-800/50 px-3 py-1 rounded-full">
+                  👤 {players.length}
+              </div>
           </div>
 
-          {/* Table */}
-          <div className="flex-1 overflow-y-auto p-4 flex flex-wrap content-center justify-center gap-6 relative">
-             <div className="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none">
-                 <span className="text-9xl font-black text-white">♠♥♣♦</span>
-             </div>
-             
-             {players.map((p, pIdx) => {
-                 const isMe = p.id === (role === GameRole.HOST ? 'host' : peerService.myId);
-                 const isWinner = p.id === winnerId;
-                 
-                 return (
-                     <div key={p.id} className={`
-                        relative bg-green-800/80 backdrop-blur-sm p-4 rounded-xl border-2 flex flex-col items-center gap-2 min-w-[200px] transition-all duration-500
-                        ${isWinner ? 'border-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.6)] scale-110 z-10' : 'border-white/30'}
-                     `}>
-                        {isWinner && (
-                            <div className="absolute -top-6 text-yellow-400 font-black text-sm bg-black/50 px-2 py-1 rounded-full animate-bounce">
-                                👑 ĐANG DẪN ĐẦU
-                            </div>
-                        )}
-                        
-                        <div className="flex gap-1 sm:gap-2 h-24 sm:h-28">
-                             {p.hand.length === 0 ? (
-                                 [1,2,3].map(i => <div key={i} className="w-16 h-24 sm:w-20 sm:h-28 border-2 border-dashed border-white/20 rounded-lg bg-green-900/50"></div>)
-                             ) : (
-                                 p.hand.map((card, cIdx) => (
-                                     <PlayingCard 
-                                        key={cIdx} 
-                                        card={card} 
-                                        revealed={!card.isHidden} // Pass individual hidden state
-                                        onClick={() => handleCardClick(pIdx, cIdx)}
-                                     />
-                                 ))
-                             )}
-                        </div>
+          {/* 2. HOST CONTROLS (Fixed Height - Only for Host) */}
+          {role === GameRole.HOST && (
+              <div className="bg-black/20 py-2 flex justify-center gap-3 shrink-0 z-40 backdrop-blur-sm border-b border-white/5">
+                  <button 
+                    onClick={handleDeal} 
+                    disabled={isAutoMode && gameStatus === GameStatus.PLAYING}
+                    className={`
+                        h-9 px-6 rounded-full font-bold text-sm shadow-lg transition-transform active:scale-95 flex items-center gap-2
+                        ${(isAutoMode && gameStatus === GameStatus.PLAYING) 
+                            ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+                            : 'bg-yellow-500 text-black hover:bg-yellow-400 border-2 border-yellow-300'
+                        }
+                    `}
+                  >
+                    <span>🎰</span> {gameStatus === GameStatus.LOBBY ? 'BẮT ĐẦU' : 'VÁN MỚI'}
+                  </button>
+                  
+                  {!isAutoMode && (
+                    <button 
+                            onClick={() => handleRevealAll()}
+                            className="h-9 bg-blue-600 px-4 rounded-full font-bold text-sm hover:bg-blue-500 shadow-lg border-2 border-blue-400"
+                    >
+                            👀 LẬT HẾT
+                    </button>
+                  )}
+              </div>
+          )}
 
-                        <div className="text-center w-full min-h-[50px]">
-                            <div className="font-bold text-lg truncate max-w-[150px] mx-auto text-yellow-50">{p.name} {isMe && '(Bạn)'}</div>
-                            {p.isRevealed ? (
-                                <div className="text-yellow-400 font-black text-xl animate-pulse">{p.scoreText}</div>
-                            ) : (
-                                <div className="text-gray-400 text-xs italic flex flex-col items-center">
-                                    {isMe && gameStatus === GameStatus.PLAYING ? (
-                                        <span className="text-blue-300 animate-pulse">👇 Bấm bài để lật!</span>
-                                    ) : (
-                                        <span>{gameStatus === GameStatus.PLAYING ? 'Đang nặn...' : '...'}</span>
-                                    )}
-                                </div>
-                            )}
-                        </div>
+          {/* 3. GAME TABLE (Flexible Area) */}
+          <div className="flex-1 overflow-hidden relative bg-green-900/50">
+             {/* Scrollable Container */}
+             <div className="absolute inset-0 overflow-y-auto p-4 scrollbar-thin">
+                 <div className="flex flex-wrap justify-center gap-4 sm:gap-6 pb-4">
+                     {/* Background Icon */}
+                     <div className="absolute inset-0 flex items-center justify-center opacity-5 pointer-events-none z-0">
+                         <span className="text-9xl">♣️</span>
                      </div>
-                 )
-             })}
+
+                     {/* Players */}
+                     {players.map((p, pIdx) => {
+                         const isMe = p.id === (role === GameRole.HOST ? 'host' : peerService.myId);
+                         const isWinner = p.id === winnerId;
+                         
+                         return (
+                             <div key={p.id} className={`
+                                relative bg-green-800/90 backdrop-blur-md p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all duration-300 z-10
+                                ${isWinner ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.6)] scale-105 ring-2 ring-yellow-500' : 'border-white/20'}
+                                min-w-[160px] sm:min-w-[180px]
+                             `}>
+                                {isWinner && (
+                                    <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-black text-[10px] font-black px-3 py-1 rounded-full z-30 animate-bounce whitespace-nowrap shadow-md">
+                                        👑 THẮNG
+                                    </div>
+                                )}
+                                
+                                {/* Cards */}
+                                <div className="flex justify-center h-20 sm:h-24 perspective-1000 -space-x-2">
+                                     {p.hand.length === 0 ? (
+                                         [1,2,3].map(i => <div key={i} className="w-14 h-20 sm:w-16 sm:h-24 bg-green-950/40 border border-white/10 rounded-lg mx-0.5"></div>)
+                                     ) : (
+                                         p.hand.map((card, cIdx) => (
+                                             <div key={cIdx} className="mx-0.5 transform transition-transform hover:-translate-y-2">
+                                                 <PlayingCard 
+                                                    card={card} 
+                                                    revealed={!card.isHidden}
+                                                    onClick={() => handleCardClick(pIdx, cIdx)}
+                                                 />
+                                             </div>
+                                         ))
+                                     )}
+                                </div>
+
+                                {/* Info */}
+                                <div className="text-center w-full mt-1">
+                                    <div className={`font-bold text-sm truncate max-w-[140px] mx-auto ${isMe ? 'text-yellow-300' : 'text-white'}`}>
+                                        {p.name} {isMe && '(Tôi)'}
+                                    </div>
+                                    
+                                    <div className="h-6 flex items-center justify-center">
+                                        {p.isRevealed ? (
+                                            <span className="text-yellow-400 font-black text-lg drop-shadow-md animate-pulse">{p.scoreText}</span>
+                                        ) : (
+                                            <span className="text-gray-400 text-xs italic">
+                                                {gameStatus === GameStatus.PLAYING 
+                                                    ? (isMe ? '👇 Bấm bài!' : 'Đang nặn...') 
+                                                    : '...'}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                             </div>
+                         )
+                     })}
+                 </div>
+             </div>
           </div>
 
-          {/* Chat */}
-          <div className="h-48 sm:h-64 bg-white text-black border-t-2 border-green-700">
+          {/* 4. CHAT BOX (Fixed Height) */}
+          <div className="h-44 sm:h-52 bg-white shrink-0 border-t-4 border-green-800 z-30">
              <ChatBox messages={messages} onSendMessage={handleSendMessage} senderName={myName} />
           </div>
       </div>
