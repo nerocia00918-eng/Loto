@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GameRole, ChatMessage, GameStatus, PlayerInfo, PeerMessage } from './types';
+import { GameRole, ChatMessage, GameStatus, PlayerInfo, PeerMessage, ClaimData } from './types';
 import HostView from './views/HostView';
 import PlayerView from './views/PlayerView';
 import WinnerOverlay from './components/WinnerOverlay';
@@ -24,6 +24,7 @@ const App: React.FC = () => {
   // Host Specific
   const [roomId, setRoomId] = useState<string>('');
   const [connectedPlayers, setConnectedPlayers] = useState<PlayerInfo[]>([]);
+  const [pendingClaim, setPendingClaim] = useState<ClaimData | null>(null);
 
   // Player Specific
   const [joinRoomId, setJoinRoomId] = useState('');
@@ -79,15 +80,18 @@ const App: React.FC = () => {
           gameState: gameStatus, 
           calledNumbers: calledNumbers 
         });
-        
-        // Broadcast new player to others (optional, if we list players on player screen)
         break;
       case 'CHAT':
         setMessages(prev => [...prev.slice(-49), data.message]);
         peerService.broadcast(data); // Relay to others
         break;
-      case 'WIN':
-        handleWin(data.winnerName);
+      case 'CLAIM_WIN':
+        // Player claims win, Host needs to verify
+        setPendingClaim(data.claim);
+        addMessage("Hệ thống", `🔔 ${data.claim.playerName} ĐANG KINH! CHỜ KIỂM TRA...`, true);
+        peerService.broadcast({ type: 'CHAT', message: {
+             id: Date.now().toString(), sender: 'Hệ thống', text: `🔔 ${data.claim.playerName} đang Kinh! Host đang kiểm tra vé...`, isSystem: true, timestamp: Date.now()
+        }});
         break;
     }
   };
@@ -119,10 +123,23 @@ const App: React.FC = () => {
         setCurrentNumber(null);
         setMessages([]);
         setWinnerName(null);
-        setGameStatus(GameStatus.PLAYING); // Restart immediately or go to lobby? Let's keep playing state
+        setPendingClaim(null);
+        setGameStatus(GameStatus.PLAYING); 
         addMessage("System", "🔔 Ván chơi mới đã bắt đầu!", true);
         peerService.broadcast({ type: 'RESET' });
     }
+  };
+
+  const resolveClaim = (valid: boolean) => {
+    if (valid && pendingClaim) {
+        handleWin(pendingClaim.playerName);
+    } else {
+        // Resume
+        if (pendingClaim) {
+            handleHostSendMessage(`Vé của ${pendingClaim.playerName} chưa hợp lệ. Tiếp tục chơi nhé!`);
+        }
+    }
+    setPendingClaim(null);
   };
 
   // --- PLAYER LOGIC ---
@@ -186,15 +203,16 @@ const App: React.FC = () => {
     peerService.sendToHost({ type: 'CHAT', message: msg });
   };
 
+  const handlePlayerClaim = (claim: ClaimData) => {
+     // Send claim to host
+     peerService.sendToHost({ type: 'CLAIM_WIN', claim: claim });
+  };
+
   const handleWin = (name: string) => {
       setWinnerName(name);
       addMessage("Hệ thống", `🏆 CHÚC MỪNG ${name} ĐÃ CHIẾN THẮNG! 🏆`, true);
-      // If host called this locally, broadcast is needed
-      if (role === GameRole.HOST) {
-        peerService.broadcast({ type: 'WIN', winnerName: name });
-      } else {
-        peerService.sendToHost({ type: 'WIN', winnerName: name });
-      }
+      // If host called this locally (for themselves), or confirmed a player claim
+      peerService.broadcast({ type: 'WIN', winnerName: name });
   }
 
   // --- RENDER ---
@@ -288,6 +306,8 @@ const App: React.FC = () => {
           connectedPlayers={connectedPlayers}
           onStartGame={handleStartGameHost}
           onWin={(name) => handleWin(name)}
+          pendingClaim={pendingClaim}
+          onResolveClaim={resolveClaim}
         />
       )}
 
@@ -304,7 +324,7 @@ const App: React.FC = () => {
           currentNumber={currentNumber}
           messages={messages}
           onSendMessage={handlePlayerSendMessage}
-          onWin={() => handleWin(myPlayerName)}
+          onClaimWin={handlePlayerClaim}
           gameStatus={gameStatus}
         />
       )}

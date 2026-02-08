@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TOTAL_NUMBERS, Board, ChatMessage, GameStatus, PlayerInfo } from '../types';
+import { TOTAL_NUMBERS, Board, ChatMessage, GameStatus, PlayerInfo, ClaimData } from '../types';
 import HostBoard from '../components/HostBoard';
 import LotoTicket from '../components/LotoTicket';
 import ChatBox from '../components/ChatBox';
@@ -48,11 +48,13 @@ interface HostViewProps {
   connectedPlayers: PlayerInfo[];
   onStartGame: () => void;
   onWin: (name: string) => void;
+  pendingClaim: ClaimData | null;
+  onResolveClaim: (valid: boolean) => void;
 }
 
 const HostView: React.FC<HostViewProps> = ({ 
   onBack, calledNumbers, currentNumber, onDrawNumber, messages, onSendMessage, onReset,
-  roomId, gameStatus, connectedPlayers, onStartGame, onWin
+  roomId, gameStatus, connectedPlayers, onStartGame, onWin, pendingClaim, onResolveClaim
 }) => {
   const [isAnimating, setIsAnimating] = useState(false);
   const [animatingNum, setAnimatingNum] = useState<number | null>(null);
@@ -72,6 +74,13 @@ const HostView: React.FC<HostViewProps> = ({
   // Voice State
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>('');
+
+  // Pause auto-mode if a claim comes in
+  useEffect(() => {
+    if (pendingClaim) {
+        setIsAutoMode(false);
+    }
+  }, [pendingClaim]);
 
   // Load voices explicitly
   useEffect(() => {
@@ -134,7 +143,7 @@ const HostView: React.FC<HostViewProps> = ({
       alert("Đã gọi hết số!");
       return;
     }
-    if (isAnimating) return;
+    if (isAnimating || pendingClaim) return;
 
     setIsAnimating(true);
     setMcCommentary('');
@@ -189,7 +198,7 @@ const HostView: React.FC<HostViewProps> = ({
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
-    if (isAutoMode && !isAnimating && calledNumbers.length < TOTAL_NUMBERS) {
+    if (isAutoMode && !isAnimating && calledNumbers.length < TOTAL_NUMBERS && !pendingClaim) {
       timer = setTimeout(() => {
         startDraw();
       }, 5000);
@@ -197,7 +206,7 @@ const HostView: React.FC<HostViewProps> = ({
         setIsAutoMode(false);
     }
     return () => clearTimeout(timer);
-  }, [isAutoMode, isAnimating, calledNumbers]);
+  }, [isAutoMode, isAnimating, calledNumbers, pendingClaim]);
 
   const handleTogglePlay = () => {
     if (!isHostPlaying) {
@@ -231,6 +240,17 @@ const HostView: React.FC<HostViewProps> = ({
       }
       return { ...board, rows: newRows };
     }));
+  };
+  
+  // Create a view-only board for verification where markers are FORCED based on called numbers
+  const getVerifiedBoard = (claimBoard: Board) => {
+      const verifiedRows = claimBoard.rows.map(row => 
+          row.map(cell => ({
+              ...cell,
+              marked: cell.value !== null && calledNumbers.includes(cell.value)
+          }))
+      );
+      return { ...claimBoard, rows: verifiedRows };
   };
 
   // --- LOBBY VIEW ---
@@ -280,8 +300,45 @@ const HostView: React.FC<HostViewProps> = ({
 
   // --- PLAYING VIEW ---
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-loto-cream font-sans">
+    <div className="flex flex-col h-screen overflow-hidden bg-loto-cream font-sans relative">
       <NumberAnnouncer number={currentNumber} />
+
+      {/* VERIFICATION MODAL */}
+      {pendingClaim && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg border-4 border-loto-yellow animate-bounce-short">
+                  <h2 className="text-3xl font-black text-loto-red text-center mb-2">KIỂM TRA VÉ!</h2>
+                  <p className="text-center text-gray-600 mb-4">
+                      Người chơi <strong className="text-blue-600 text-lg">{pendingClaim.playerName}</strong> đang Kinh.
+                      <br/>
+                      <span className="text-sm italic">(Hệ thống đã tự động tô màu các số có trong bảng kết quả)</span>
+                  </p>
+                  
+                  <div className="bg-gray-100 p-2 rounded-lg mb-6">
+                      <LotoTicket 
+                        board={getVerifiedBoard(pendingClaim.board)} 
+                        onCellClick={() => {}} 
+                        readOnly={true} 
+                      />
+                  </div>
+
+                  <div className="flex gap-4 justify-center">
+                      <button 
+                        onClick={() => onResolveClaim(false)}
+                        className="flex-1 bg-gray-200 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-300 transition-colors"
+                      >
+                          Sai rồi, chơi tiếp ❌
+                      </button>
+                      <button 
+                        onClick={() => onResolveClaim(true)}
+                        className="flex-1 bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-700 shadow-lg animate-pulse"
+                      >
+                          Xác nhận Thắng ✅
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
 
       {/* Header Fixed */}
       <div className="flex-none flex justify-between items-center p-3 bg-white shadow-sm z-20 border-b border-gray-200">
@@ -342,7 +399,7 @@ const HostView: React.FC<HostViewProps> = ({
                     {!isAutoMode ? (
                       <button
                         onClick={startDraw}
-                        disabled={isAnimating || calledNumbers.length >= TOTAL_NUMBERS}
+                        disabled={isAnimating || calledNumbers.length >= TOTAL_NUMBERS || !!pendingClaim}
                         className="bg-loto-red text-white text-lg font-bold py-3 px-4 rounded-xl shadow hover:bg-red-700 active:scale-95 disabled:opacity-50 transition-all w-full"
                       >
                         {isAnimating ? '...' : 'BỐC SỐ'}
@@ -358,7 +415,7 @@ const HostView: React.FC<HostViewProps> = ({
 
                     <button
                       onClick={() => setIsAutoMode(!isAutoMode)}
-                      disabled={isAnimating || calledNumbers.length >= TOTAL_NUMBERS}
+                      disabled={isAnimating || calledNumbers.length >= TOTAL_NUMBERS || !!pendingClaim}
                       className={`text-sm font-bold py-2 px-4 rounded-xl border-2 w-full transition-all flex items-center justify-center gap-1 ${isAutoMode ? 'hidden' : 'border-loto-yellow text-yellow-800 hover:bg-yellow-50'}`}
                     >
                       <span>🤖</span> Tự động gọi

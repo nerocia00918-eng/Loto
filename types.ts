@@ -35,6 +35,11 @@ export type ChatMessage = {
   timestamp: number;
 };
 
+export type ClaimData = {
+  playerName: string;
+  board: Board;
+}
+
 // PeerJS Message Types
 export type PeerMessage = 
   | { type: 'JOIN'; name: string }
@@ -43,6 +48,7 @@ export type PeerMessage =
   | { type: 'START_GAME' }
   | { type: 'NUMBER_DRAWN'; number: number }
   | { type: 'CHAT'; message: ChatMessage }
+  | { type: 'CLAIM_WIN'; claim: ClaimData }
   | { type: 'WIN'; winnerName: string }
   | { type: 'RESET' };
 

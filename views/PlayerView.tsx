@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Board, ChatMessage, GameStatus } from '../types';
+import { Board, ChatMessage, GameStatus, ClaimData } from '../types';
 import { generatePlayerBoards, checkBoardWin } from '../utils/gameLogic';
 import LotoTicket from '../components/LotoTicket';
 import ChatBox from '../components/ChatBox';
@@ -12,15 +12,16 @@ interface PlayerViewProps {
   calledNumbers: number[];
   messages: ChatMessage[];
   onSendMessage: (text: string) => void;
-  onWin: (playerName: string) => void;
+  onClaimWin: (claim: ClaimData) => void;
   gameStatus: GameStatus;
 }
 
 const PlayerView: React.FC<PlayerViewProps> = ({ 
-  playerName, onBack, currentNumber, calledNumbers, messages, onSendMessage, onWin, gameStatus 
+  playerName, onBack, currentNumber, calledNumbers, messages, onSendMessage, onClaimWin, gameStatus 
 }) => {
   const [boards, setBoards] = useState<Board[]>([]);
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
+  const [hasClaimed, setHasClaimed] = useState(false);
 
   // Generate boards once on mount
   useEffect(() => {
@@ -28,6 +29,13 @@ const PlayerView: React.FC<PlayerViewProps> = ({
       setBoards(generatePlayerBoards());
     }
   }, []);
+
+  // Reset claim status if game resets (calledNumbers cleared)
+  useEffect(() => {
+      if (calledNumbers.length === 0) {
+          setHasClaimed(false);
+      }
+  }, [calledNumbers]);
 
   const handleCellClick = (boardId: string, rIdx: number, cIdx: number) => {
     setBoards(prevBoards => prevBoards.map(board => {
@@ -45,14 +53,25 @@ const PlayerView: React.FC<PlayerViewProps> = ({
   };
   
   const handleKinh = () => {
-    let hasWin = false;
-    boards.forEach(board => {
-        if (checkBoardWin(board) !== -1) hasWin = true;
-    });
+    let winningBoard: Board | null = null;
+    
+    // Find the board that triggered the win
+    for (const board of boards) {
+        if (checkBoardWin(board) !== -1) {
+            winningBoard = board;
+            break;
+        }
+    }
 
-    if (hasWin) {
+    if (winningBoard) {
+        setHasClaimed(true);
         onSendMessage("KINH RỒI BÀ CON ƠI!!! 🎉🎉🎉");
-        onWin(playerName);
+        // Send claim to Host
+        onClaimWin({
+            playerName,
+            board: winningBoard
+        });
+        alert("Đã gửi yêu cầu 'Kinh'! Chờ Host kiểm tra vé nhé.");
     } else {
         alert("Chưa đủ điều kiện 'Kinh' đâu nhé! Kiểm tra lại đi.");
         onSendMessage("Huhu tính kinh mà dò lại bị hụt... 😭");
@@ -119,9 +138,16 @@ const PlayerView: React.FC<PlayerViewProps> = ({
             </button>
             <button 
                 onClick={handleKinh}
-                className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-red-900 px-6 py-2 rounded-full text-lg font-black shadow-lg hover:from-yellow-300 hover:to-yellow-400 animate-pulse-fast border-2 border-white ring-2 ring-red-500"
+                disabled={hasClaimed}
+                className={`
+                    px-6 py-2 rounded-full text-lg font-black shadow-lg border-2 border-white ring-2 ring-red-500
+                    ${hasClaimed 
+                        ? 'bg-gray-400 text-gray-200 cursor-not-allowed' 
+                        : 'bg-gradient-to-r from-yellow-400 to-yellow-500 text-red-900 hover:from-yellow-300 hover:to-yellow-400 animate-pulse-fast'
+                    }
+                `}
             >
-                KINH!
+                {hasClaimed ? 'ĐÃ KINH' : 'KINH!'}
             </button>
             <button onClick={onBack} className="text-xs text-gray-400 underline ml-2 hover:text-red-500">Thoát</button>
         </div>
