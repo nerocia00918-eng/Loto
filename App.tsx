@@ -30,6 +30,7 @@ const App: React.FC = () => {
   const [joinRoomId, setJoinRoomId] = useState('');
   const [myPlayerName, setMyPlayerName] = useState('');
   const [isJoining, setIsJoining] = useState(false);
+  const [claimRejectionCount, setClaimRejectionCount] = useState(0); // Counter to trigger effects
 
   // Common State
   const [calledNumbers, setCalledNumbers] = useState<number[]>([]);
@@ -131,12 +132,18 @@ const App: React.FC = () => {
   };
 
   const resolveClaim = (valid: boolean) => {
-    if (valid && pendingClaim) {
+    if (!pendingClaim) return;
+    
+    if (valid) {
         handleWin(pendingClaim.playerName);
     } else {
         // Resume
-        if (pendingClaim) {
-            handleHostSendMessage(`Vé của ${pendingClaim.playerName} chưa hợp lệ. Tiếp tục chơi nhé!`);
+        handleHostSendMessage(`Vé của ${pendingClaim.playerName} chưa hợp lệ. Tiếp tục chơi nhé!`);
+        
+        // Find player peer ID to send rejection
+        const player = connectedPlayers.find(p => p.name === pendingClaim.playerName);
+        if (player) {
+            peerService.sendToPlayer(player.id, { type: 'CLAIM_REJECTED' });
         }
     }
     setPendingClaim(null);
@@ -185,6 +192,10 @@ const App: React.FC = () => {
       case 'WIN':
         setWinnerName(data.winnerName);
         addMessage("Hệ thống", `🏆 ${data.winnerName} ĐÃ CHIẾN THẮNG! 🏆`, true);
+        break;
+      case 'CLAIM_REJECTED':
+        setClaimRejectionCount(prev => prev + 1);
+        addMessage("Hệ thống", "⚠️ Host xác nhận vé chưa Kinh. Bạn có thể tiếp tục!", true);
         break;
       case 'RESET':
         setCalledNumbers([]);
@@ -326,6 +337,7 @@ const App: React.FC = () => {
           onSendMessage={handlePlayerSendMessage}
           onClaimWin={handlePlayerClaim}
           gameStatus={gameStatus}
+          claimRejectionCount={claimRejectionCount}
         />
       )}
       

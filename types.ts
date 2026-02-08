@@ -49,6 +49,7 @@ export type PeerMessage =
   | { type: 'NUMBER_DRAWN'; number: number }
   | { type: 'CHAT'; message: ChatMessage }
   | { type: 'CLAIM_WIN'; claim: ClaimData }
+  | { type: 'CLAIM_REJECTED' }
   | { type: 'WIN'; winnerName: string }
   | { type: 'RESET' };
 

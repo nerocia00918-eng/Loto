@@ -14,10 +14,11 @@ interface PlayerViewProps {
   onSendMessage: (text: string) => void;
   onClaimWin: (claim: ClaimData) => void;
   gameStatus: GameStatus;
+  claimRejectionCount?: number;
 }
 
 const PlayerView: React.FC<PlayerViewProps> = ({ 
-  playerName, onBack, currentNumber, calledNumbers, messages, onSendMessage, onClaimWin, gameStatus 
+  playerName, onBack, currentNumber, calledNumbers, messages, onSendMessage, onClaimWin, gameStatus, claimRejectionCount = 0 
 }) => {
   const [boards, setBoards] = useState<Board[]>([]);
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid');
@@ -30,12 +31,19 @@ const PlayerView: React.FC<PlayerViewProps> = ({
     }
   }, []);
 
-  // Reset claim status if game resets (calledNumbers cleared)
+  // Reset claim status if game resets
   useEffect(() => {
       if (calledNumbers.length === 0) {
           setHasClaimed(false);
       }
   }, [calledNumbers]);
+
+  // Unlock claim button if Host rejects the claim
+  useEffect(() => {
+      if (claimRejectionCount > 0) {
+          setHasClaimed(false);
+      }
+  }, [claimRejectionCount]);
 
   const handleCellClick = (boardId: string, rIdx: number, cIdx: number) => {
     setBoards(prevBoards => prevBoards.map(board => {
@@ -79,6 +87,12 @@ const PlayerView: React.FC<PlayerViewProps> = ({
   };
 
   const resetPlayer = () => {
+    // LOCK: Cannot change tickets if 3 or more numbers have been called
+    if (calledNumbers.length >= 3) {
+        alert("Đã gọi 3 số rồi, không được đổi vé nữa nhé! Chơi tiếp đi!");
+        return;
+    }
+
     if(confirm("Bạn muốn đổi vé mới?")) {
         setBoards(generatePlayerBoards());
     }
@@ -133,8 +147,11 @@ const PlayerView: React.FC<PlayerViewProps> = ({
                 {layoutMode === 'grid' ? 'xếp Dọc' : 'xếp Lưới'}
             </button>
 
-             <button onClick={resetPlayer} className="bg-gray-100 text-gray-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-gray-200 hidden sm:block">
-                Đổi Vé
+             <button 
+                onClick={resetPlayer} 
+                className={`px-3 py-2 rounded-lg text-xs font-bold hidden sm:block ${calledNumbers.length >= 3 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+             >
+                {calledNumbers.length >= 3 ? 'Đã khóa đổi vé' : 'Đổi Vé'}
             </button>
             <button 
                 onClick={handleKinh}

@@ -137,6 +137,15 @@ export class PeerService {
     }
   }
 
+  sendToPlayer(peerId: string, data: PeerMessage) {
+    const conn = this.connections.find(c => c.peer === peerId);
+    if (conn && conn.open) {
+      conn.send(data);
+    } else {
+        console.warn(`Could not send to player ${peerId}, connection not found or closed.`);
+    }
+  }
+
   broadcast(data: PeerMessage) {
     this.connections.forEach(conn => {
       if (conn.open) {
