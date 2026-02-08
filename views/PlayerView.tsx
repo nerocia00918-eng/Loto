@@ -121,7 +121,7 @@ const PlayerView: React.FC<PlayerViewProps> = ({
       <div className="flex flex-col lg:flex-row gap-4 p-2 sm:p-4 flex-1 overflow-hidden">
         {/* Tickets Area */}
         <div className="flex-1 overflow-y-auto pb-24 lg:pb-0 scrollbar-thin">
-            <div className="flex flex-col items-center gap-6 pb-8">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 justify-items-center pb-8 content-start">
                 {boards.map((board, idx) => (
                     <div key={board.id} className="w-full max-w-md bg-white p-2 rounded-xl shadow-md border border-gray-100">
                         <div className="flex justify-between items-end mb-2 px-2 border-b border-gray-100 pb-1">

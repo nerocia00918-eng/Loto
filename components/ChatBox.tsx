@@ -32,11 +32,11 @@ const ChatBox: React.FC<ChatBoxProps> = ({ messages, onSendMessage, senderName }
   };
 
   return (
-    <div className="flex flex-col h-64 sm:h-80 bg-white rounded-lg shadow-lg border border-gray-300 overflow-hidden">
+    <div className="flex flex-col h-96 min-h-[450px] bg-white rounded-lg shadow-lg border border-gray-300 overflow-hidden">
       {/* Header */}
       <div className="bg-loto-red text-white px-3 py-2 font-bold text-sm flex justify-between items-center">
         <span>Phòng Chat 💬</span>
-        <span className="text-xs font-normal opacity-80">Online: 4</span>
+        <span className="text-xs font-normal opacity-80">Online</span>
       </div>
 
       {/* Messages List */}

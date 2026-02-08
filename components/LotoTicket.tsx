@@ -10,7 +10,7 @@ interface LotoTicketProps {
 
 const LotoTicket: React.FC<LotoTicketProps> = ({ board, onCellClick, readOnly = false }) => {
   return (
-    <div className="bg-white border-4 border-loto-red rounded-lg p-2 shadow-lg w-full max-w-md my-2 relative overflow-hidden">
+    <div className="bg-white border-4 border-loto-red rounded-lg p-2 shadow-lg w-full max-w-md relative overflow-hidden">
         {/* Decorative Header within Ticket */}
         <div className="absolute top-0 left-0 w-full h-1 bg-loto-yellow opacity-50"></div>
         

@@ -52,9 +52,22 @@ export const COLS_PER_BOARD = 6;
 export const NUMS_PER_ROW = 4;
 export const BOARDS_PER_PLAYER = 5;
 
-// Column ranges: Col 0 (1-10), Col 1 (11-20), etc.
+// Strict Column ranges based on user request
 export const getColRange = (colIndex: number) => {
-  const start = colIndex * 10 + 1;
-  const end = start + 9;
-  return { start, end };
+  switch (colIndex) {
+    case 0: // Cột 1: 1 - 9
+      return { start: 1, end: 9 };
+    case 1: // Cột 2: 10 - 19
+      return { start: 10, end: 19 };
+    case 2: // Cột 3: 20 - 29
+      return { start: 20, end: 29 };
+    case 3: // Cột 4: 30 - 39
+      return { start: 30, end: 39 };
+    case 4: // Cột 5: 40 - 49
+      return { start: 40, end: 49 };
+    case 5: // Cột 6: 50 - 60
+      return { start: 50, end: 60 };
+    default:
+      return { start: 1, end: 60 };
+  }
 };
