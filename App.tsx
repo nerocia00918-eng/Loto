@@ -287,6 +287,7 @@ const App: React.FC = () => {
           gameStatus={gameStatus}
           connectedPlayers={connectedPlayers}
           onStartGame={handleStartGameHost}
+          onWin={(name) => handleWin(name)}
         />
       )}
 

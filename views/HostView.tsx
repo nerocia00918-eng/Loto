@@ -47,11 +47,12 @@ interface HostViewProps {
   gameStatus: GameStatus;
   connectedPlayers: PlayerInfo[];
   onStartGame: () => void;
+  onWin: (name: string) => void;
 }
 
 const HostView: React.FC<HostViewProps> = ({ 
   onBack, calledNumbers, currentNumber, onDrawNumber, messages, onSendMessage, onReset,
-  roomId, gameStatus, connectedPlayers, onStartGame
+  roomId, gameStatus, connectedPlayers, onStartGame, onWin
 }) => {
   const [isAnimating, setIsAnimating] = useState(false);
   const [animatingNum, setAnimatingNum] = useState<number | null>(null);
@@ -202,6 +203,21 @@ const HostView: React.FC<HostViewProps> = ({
       setHostBoards(generatePlayerBoards());
     }
     setIsHostPlaying(!isHostPlaying);
+  };
+
+  const handleHostKinh = () => {
+    let hasWin = false;
+    hostBoards.forEach(board => {
+        if (checkBoardWin(board) !== -1) hasWin = true;
+    });
+
+    if (hasWin) {
+        onSendMessage("HOST KINH RỒI BÀ CON ƠI!!! 🎉🎉🎉");
+        onWin("Host (Cái)");
+    } else {
+        alert("Host ơi, chưa đủ điều kiện 'Kinh' đâu nhé! Kiểm tra lại vé đi.");
+        onSendMessage("Host tính kinh mà dò lại bị hụt... 😅");
+    }
   };
 
   const handleCellClick = (boardId: string, rIdx: number, cIdx: number) => {
@@ -386,7 +402,15 @@ const HostView: React.FC<HostViewProps> = ({
           {/* Middle Column: Host Tickets */}
           {isHostPlaying && (
             <div className="lg:col-span-5 flex flex-col h-full overflow-hidden bg-white rounded-2xl border-2 border-loto-yellow/30 shadow-sm relative">
-               <div className="bg-loto-yellow/20 p-2 text-center font-bold text-loto-red uppercase text-sm">Vé của Host</div>
+               <div className="bg-loto-yellow/20 p-2 flex justify-between items-center px-4 border-b border-loto-yellow/30">
+                  <span className="font-bold text-loto-red uppercase text-sm">Vé của Host</span>
+                  <button 
+                    onClick={handleHostKinh}
+                    className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-red-900 px-4 py-1 rounded-full text-sm font-black shadow hover:from-yellow-300 hover:to-yellow-400 animate-pulse-fast border border-white"
+                  >
+                    KINH!
+                  </button>
+               </div>
                <div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
                  <div className="flex flex-col gap-4 items-center">
                    {hostBoards.map((board) => (
