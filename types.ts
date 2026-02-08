@@ -21,6 +21,12 @@ export enum GameStatus {
   ENDED = 'ENDED'
 }
 
+export enum AppMode {
+  MENU = 'MENU',
+  LOTO = 'LOTO',
+  CARD = 'CARD' // Bài cào
+}
+
 export type PlayerInfo = {
   id: string;
   name: string;
@@ -40,18 +46,44 @@ export type ClaimData = {
   board: Board;
 }
 
+// --- CARD GAME TYPES ---
+export type Suit = 'hearts' | 'diamonds' | 'clubs' | 'spades';
+export type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K';
+
+export type Card = {
+  suit: Suit;
+  rank: Rank;
+  isHidden: boolean;
+};
+
+export type CardPlayer = PlayerInfo & {
+  hand: Card[];
+  isRevealed: boolean;
+  score?: number; // 0-9, 10 (Ba Tây), 11 (Sáp)
+  scoreText?: string;
+};
+
 // PeerJS Message Types
 export type PeerMessage = 
+  // Common
   | { type: 'JOIN'; name: string }
-  | { type: 'WELCOME'; gameState: GameStatus; calledNumbers: number[] }
   | { type: 'PLAYER_JOINED'; player: PlayerInfo }
+  | { type: 'CHAT'; message: ChatMessage }
+  | { type: 'RESET' }
+  // Loto
+  | { type: 'WELCOME'; gameState: GameStatus; calledNumbers: number[] }
   | { type: 'START_GAME' }
   | { type: 'NUMBER_DRAWN'; number: number }
-  | { type: 'CHAT'; message: ChatMessage }
   | { type: 'CLAIM_WIN'; claim: ClaimData }
   | { type: 'CLAIM_REJECTED' }
   | { type: 'WIN'; winnerName: string }
-  | { type: 'RESET' };
+  // Card Game
+  | { type: 'CARD_WELCOME'; players: CardPlayer[]; gameState: GameStatus }
+  | { type: 'CARD_DEAL'; hands: Record<string, Card[]> } // map peerId -> cards
+  | { type: 'CARD_REVEAL'; peerId: string; hand: Card[] }
+  | { type: 'CARD_REVEAL_ALL' } // Host force reveal
+  | { type: 'CARD_RESULT'; winnerId: string }
+  ;
 
 export const TOTAL_NUMBERS = 60;
 export const ROWS_PER_BOARD = 3;
