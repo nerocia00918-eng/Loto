@@ -389,34 +389,43 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
       );
   }
 
-  // PLAYING SCREEN - FIXED LAYOUT WITH DVH
+  // PLAYING SCREEN - GRID LAYOUT
   return (
-      <div className="h-[100dvh] w-screen bg-green-900 text-white flex flex-col overflow-hidden">
+      <div className="fixed inset-0 w-full h-full bg-green-900 text-white grid grid-rows-[auto_auto_1fr_auto] overflow-hidden">
           
-          {/* 1. TOP HEADER (Fixed Height) */}
-          <div className="h-14 bg-green-950 flex items-center justify-between px-3 shadow-md z-50 shrink-0 border-b border-green-800">
+          {/* EMERGENCY EXIT BUTTON - Always Top Right z-60 */}
+          <button 
+              onClick={handleExit}
+              className="fixed top-2 right-2 z-[60] bg-red-600 w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-xl border-2 border-white hover:bg-red-500"
+              title="Force Exit"
+          >
+              ✕
+          </button>
+
+          {/* 1. HEADER (Row 1) */}
+          <div className="bg-green-950 flex items-center justify-between px-3 h-14 shadow-md z-50 border-b border-green-800">
               <div className="flex items-center gap-3">
                  <button 
                     onClick={handleExit} 
-                    className="bg-red-600 hover:bg-red-500 text-white px-4 py-1.5 rounded font-bold text-sm shadow border border-red-400 transition-colors"
+                    className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded font-bold text-xs shadow border border-red-400"
                  >
                     THOÁT
                  </button>
                  <div className="flex flex-col">
                     <span className="font-bold text-yellow-400 text-sm leading-tight">Phòng: {roomId}</span>
                     <span className="text-[10px] text-gray-400 leading-tight">
-                        {gameStatus === GameStatus.LOBBY ? 'Đang chờ...' : 'Đang chơi'}
+                        {gameStatus === GameStatus.LOBBY ? 'Đang chờ...' : 'Đang chơi'} {isAutoMode && '(Bot)'}
                     </span>
                  </div>
               </div>
-              <div className="text-sm font-bold bg-green-800/50 px-3 py-1 rounded-full">
+              <div className="text-sm font-bold bg-green-800/50 px-3 py-1 rounded-full mr-8">
                   👤 {players.length}
               </div>
           </div>
 
-          {/* 2. HOST CONTROLS (Fixed Height - Only for Host) */}
-          {role === GameRole.HOST && (
-              <div className="bg-black/20 py-2 flex justify-center gap-3 shrink-0 z-40 backdrop-blur-sm border-b border-white/5">
+          {/* 2. HOST CONTROLS (Row 2) */}
+          {role === GameRole.HOST ? (
+              <div className="bg-black/20 py-2 flex justify-center gap-3 z-40 backdrop-blur-sm border-b border-white/5">
                   <button 
                     onClick={handleDeal} 
                     disabled={isAutoMode && gameStatus === GameStatus.PLAYING}
@@ -440,13 +449,13 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                     </button>
                   )}
               </div>
+          ) : (
+             <div className="hidden"></div> /* Empty placeholder row if needed, or grid handles it */
           )}
 
-          {/* 3. GAME TABLE (Flexible Area) */}
-          <div className="flex-1 overflow-hidden relative bg-green-900/50">
-             {/* Scrollable Container */}
-             <div className="absolute inset-0 overflow-y-auto p-4 scrollbar-thin">
-                 <div className="flex flex-wrap justify-center gap-4 sm:gap-6 pb-4">
+          {/* 3. GAME TABLE (Row 3 - Expands) */}
+          <div className="relative overflow-y-auto bg-green-900/50 scrollbar-thin p-4">
+               <div className="flex flex-wrap justify-center gap-4 sm:gap-6 pb-4 min-h-full content-center">
                      {/* Background Icon */}
                      <div className="absolute inset-0 flex items-center justify-center opacity-5 pointer-events-none z-0">
                          <span className="text-9xl">♣️</span>
@@ -508,11 +517,10 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                          )
                      })}
                  </div>
-             </div>
           </div>
 
-          {/* 4. CHAT BOX (Fixed Height) */}
-          <div className="h-44 sm:h-52 bg-white shrink-0 border-t-4 border-green-800 z-30">
+          {/* 4. CHAT BOX (Row 4 - Fixed) */}
+          <div className="h-48 z-30 bg-white border-t-4 border-green-800 shrink-0">
              <ChatBox messages={messages} onSendMessage={handleSendMessage} senderName={myName} />
           </div>
       </div>
