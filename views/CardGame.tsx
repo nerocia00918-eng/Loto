@@ -24,8 +24,24 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [winnerId, setWinnerId] = useState<string | null>(null);
 
-  // Auto Bot Refs
+  // Refs for stale closure fix in PeerJS callbacks
+  const playersRef = useRef<CardPlayer[]>([]);
+  const gameStatusRef = useRef<GameStatus>(GameStatus.LOBBY);
   const autoTimeoutRef = useRef<number | null>(null);
+  const winnerIdRef = useRef<string | null>(null);
+
+  // Sync state to refs
+  useEffect(() => {
+    playersRef.current = players;
+  }, [players]);
+
+  useEffect(() => {
+    gameStatusRef.current = gameStatus;
+  }, [gameStatus]);
+
+  useEffect(() => {
+      winnerIdRef.current = winnerId;
+  }, [winnerId]);
 
   const addMessage = (sender: string, text: string, isSystem = false) => {
     const newMessage: ChatMessage = {
@@ -43,15 +59,16 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   const startHost = () => {
     if(!myName) return alert("Nhập tên Host!");
     setRole(GameRole.HOST);
-    // Add host as first player
+    
+    // Initial Host Player
     const hostPlayer: CardPlayer = { id: 'host', name: myName, isReady: true, hand: [], isRevealed: false };
     setPlayers([hostPlayer]);
-    
+    playersRef.current = [hostPlayer]; 
+
     peerService.initHost(
       (id) => {
         setRoomId(id);
         setGameStatus(GameStatus.LOBBY);
-        // Important: Update host peerId in service for consistency if needed, but 'host' id is local
       },
       (data, conn) => {
          handleHostData(data, conn);
@@ -63,16 +80,24 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
     switch (data.type) {
       case 'JOIN':
         const newPlayer: CardPlayer = { id: conn.peer, name: data.name, isReady: true, hand: [], isRevealed: false };
+        
         setPlayers(prev => {
            if (prev.find(p => p.id === newPlayer.id)) return prev;
-           const updated = [...prev, newPlayer];
-           // Broadcast updated list to everyone
-           broadcastUpdate(updated);
-           return updated;
+           return [...prev, newPlayer];
         });
+
         addMessage("Hệ thống", `${data.name} đã vào bàn!`, true);
         
-        conn.send({ type: 'CARD_WELCOME', players: players, gameState: gameStatus }); // Send current state
+        // Respond with current state
+        // Need a slight delay or rely on ref to ensure we send the included player list
+        setTimeout(() => {
+            const currentList = playersRef.current.find(p => p.id === newPlayer.id) 
+                ? playersRef.current 
+                : [...playersRef.current, newPlayer];
+            
+            conn.send({ type: 'CARD_WELCOME', players: currentList, gameState: gameStatusRef.current });
+            broadcastUpdate(currentList);
+        }, 100);
         break;
       
       case 'CHAT':
@@ -81,6 +106,7 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
         break;
         
       case 'CARD_REVEAL':
+        // A player revealed their hand
         setPlayers(prev => {
             const updated = prev.map(p => {
                 if(p.id === data.peerId) {
@@ -89,8 +115,13 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                 }
                 return p;
             });
-            broadcastUpdate(updated);
-            checkAllRevealed(updated);
+            
+            // DYNAMIC WINNER CALCULATION (King of the Hill)
+            setTimeout(() => {
+                calculateLeader(updated, data.peerId);
+                broadcastUpdate(updated);
+            }, 0);
+            
             return updated;
         });
         break;
@@ -98,23 +129,22 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   };
 
   const broadcastUpdate = (currentPlayers: CardPlayer[], status?: GameStatus) => {
-      // Filter out private card data for other players? 
-      // For simplicity in this demo, we send hidden:true for others, but let's just trust clients or mask data.
-      // Ideally: Send sanitized data.
-      // Here we broadcast everything but clients render Card back if not theirs. 
-      // Wait, 'hand' in CardPlayer is full data. We should mask it before broadcast if we want security.
-      // But for "Friend Mode", full trust is okay-ish. Let's stick to simple broadcast.
-      
       const msg: any = { 
           type: 'CARD_WELCOME', 
           players: currentPlayers, 
-          gameState: status || gameStatus 
+          gameState: status || gameStatusRef.current 
       };
       peerService.broadcast(msg);
+      
+      // Also broadcast winner if exists
+      if (winnerIdRef.current) {
+          peerService.broadcast({ type: 'CARD_RESULT', winnerId: winnerIdRef.current });
+      }
   };
 
   const handleDeal = () => {
-     if (players.length < 2) return alert("Cần ít nhất 2 người!");
+     if (players.length < 1) return alert("Cần ít nhất 1 người!"); 
+     
      setGameStatus(GameStatus.PLAYING);
      setWinnerId(null);
      
@@ -123,7 +153,8 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
      // Deal 3 cards to each
      const hands: Record<string, Card[]> = {};
      const newPlayers = players.map(p => {
-         const hand = [deck.pop()!, deck.pop()!, deck.pop()!];
+         // Create 3 hidden cards
+         const hand = [deck.pop()!, deck.pop()!, deck.pop()!].map(c => ({...c, isHidden: true}));
          hands[p.id] = hand;
          return { ...p, hand, isRevealed: false, score: undefined, scoreText: undefined };
      });
@@ -137,35 +168,54 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
          }
      });
 
-     // Broadcast public state (masked hands logically)
+     // Broadcast public state (everyone gets hidden cards visually)
      peerService.broadcast({ type: 'START_GAME' });
-     addMessage("Dealer", "Đã chia bài! Mở bài đi nào.", true);
+     addMessage("Dealer", isAutoMode ? "Bot đã chia bài! Đang tự động lật..." : "Đã chia bài! Mời nặn bài.", true);
 
      if (isAutoMode) {
-         // Auto reveal after 5 seconds
+         if (autoTimeoutRef.current) clearTimeout(autoTimeoutRef.current);
          autoTimeoutRef.current = setTimeout(() => {
              handleRevealAll(newPlayers);
-         }, 5000);
+         }, 3000); // 3s delay for suspense
      }
   };
 
   const handleRevealAll = (currentPlayers = players) => {
+      // Force reveal everyone
       const revealedPlayers = currentPlayers.map(p => {
-           const { score, text } = calculateScore(p.hand);
-           return { ...p, isRevealed: true, score, scoreText: text };
+           const fullHand = p.hand.map(c => ({...c, isHidden: false}));
+           const { score, text } = calculateScore(fullHand);
+           return { ...p, hand: fullHand, isRevealed: true, score, scoreText: text };
       });
       setPlayers(revealedPlayers);
+      
+      // Calculate final winner
+      calculateLeader(revealedPlayers, 'ALL');
+      
       broadcastUpdate(revealedPlayers);
       peerService.broadcast({ type: 'CARD_REVEAL_ALL' });
-      determineWinner(revealedPlayers);
+      
+      if (isAutoMode) {
+          if (autoTimeoutRef.current) clearTimeout(autoTimeoutRef.current);
+          autoTimeoutRef.current = setTimeout(() => {
+              handleDeal(); // Loop
+          }, 5000);
+      }
   };
 
-  const determineWinner = (currentPlayers: CardPlayer[]) => {
+  // Logic to find who is winning *right now* among revealed players
+  const calculateLeader = (currentPlayers: CardPlayer[], newlyRevealedId: string) => {
+      // Get all revealed players
+      const revealed = currentPlayers.filter(p => p.isRevealed && p.score !== undefined);
+      
+      if (revealed.length === 0) return;
+
+      // Find max score
       let maxScore = -1;
       let winners: CardPlayer[] = [];
 
-      currentPlayers.forEach(p => {
-          const s = p.score ?? 0;
+      revealed.forEach(p => {
+          const s = p.score ?? -1;
           if (s > maxScore) {
               maxScore = s;
               winners = [p];
@@ -174,43 +224,38 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
           }
       });
 
+      // Simple rule: If tie, the latest one or keeping existing? 
+      // Usually keeping existing leader is better for stability, unless new one is strictly higher.
+      // But user wants notification when *that person* presses show.
+      // So if I reveal and I match the high score, I join the winners circle.
+      
       if (winners.length > 0) {
-          // If tie, first one (simple rule) or both. Let's pick first.
-          const w = winners[0];
-          setWinnerId(w.id);
-          addMessage("Hệ thống", `🏆 ${w.name} thắng với ${w.scoreText}!`, true);
-          peerService.broadcast({ type: 'CARD_RESULT', winnerId: w.id });
-      }
-
-      if (isAutoMode) {
-          autoTimeoutRef.current = setTimeout(() => {
-              handleDeal(); // Next round
-          }, 4000);
-      }
-  };
-
-  const checkAllRevealed = (currentPlayers: CardPlayer[]) => {
-      if (currentPlayers.every(p => p.isRevealed)) {
-          determineWinner(currentPlayers);
+          // If the newly revealed player is among the winners, announce them specifically
+          const newChampion = winners.find(w => w.id === newlyRevealedId);
+          
+          if (newChampion) {
+               setWinnerId(newChampion.id);
+               addMessage("Hệ thống", `🔥 ${newChampion.name} vừa lật bài: ${newChampion.scoreText}! (Dẫn đầu)`, true);
+               peerService.broadcast({ type: 'CARD_RESULT', winnerId: newChampion.id });
+          } else if (newlyRevealedId === 'ALL') {
+               // Auto mode or Reveal All case
+               const w = winners[0];
+               setWinnerId(w.id);
+               addMessage("Hệ thống", `🏆 ${w.name} thắng với ${w.scoreText}!`, true);
+               peerService.broadcast({ type: 'CARD_RESULT', winnerId: w.id });
+          } else {
+               // Someone revealed but didn't beat the leader
+               // Just keep current winnerId
+               // Optional: Check if the current winnerId is still valid? Yes, logic above handles it.
+               const currentLeader = winners[0];
+               if (currentLeader.id !== winnerIdRef.current) {
+                   setWinnerId(currentLeader.id);
+                   peerService.broadcast({ type: 'CARD_RESULT', winnerId: currentLeader.id });
+               }
+          }
       }
   };
   
-  const handleHostRevealSelf = () => {
-      // Reveal host hand
-      setPlayers(prev => {
-          const updated = prev.map(p => {
-              if (p.id === 'host') {
-                  const { score, text } = calculateScore(p.hand);
-                  return { ...p, isRevealed: true, score, scoreText: text };
-              }
-              return p;
-          });
-          broadcastUpdate(updated);
-          checkAllRevealed(updated);
-          return updated;
-      });
-  };
-
   // --- PLAYER LOGIC ---
   const startPlayer = () => {
     if(!myName || !joinRoomId) return alert("Nhập đủ thông tin!");
@@ -229,7 +274,17 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   const handlePlayerData = (data: PeerMessage) => {
       switch (data.type) {
           case 'CARD_WELCOME':
-              setPlayers(data.players);
+              // Merge hands carefully. If I have a private hand, keep it.
+              setPlayers(prev => {
+                  return data.players.map(serverP => {
+                      const localP = prev.find(local => local.id === serverP.id);
+                      // If it's ME, and I have cards, keep my local 'isHidden' state unless server says revealed
+                      if (serverP.id === peerService.myId && localP?.hand?.length && !serverP.isRevealed) {
+                          return { ...serverP, hand: localP.hand }; 
+                      }
+                      return serverP;
+                  });
+              });
               setGameStatus(data.gameState);
               break;
           case 'START_GAME':
@@ -237,17 +292,12 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
               setWinnerId(null);
               break;
           case 'CARD_DEAL':
-              // My private hand
-              const myHand = data.hands[peerService.myId];
-              if (myHand) {
-                  setPlayers(prev => prev.map(p => p.id === peerService.myId ? { ...p, hand: myHand, isRevealed: false } : p));
-              }
+              // My private hand (all hidden initially)
+              const myHand = data.hands[peerService.myId].map(c => ({ ...c, isHidden: true }));
+              setPlayers(prev => prev.map(p => p.id === peerService.myId ? { ...p, hand: myHand, isRevealed: false } : p));
               break;
           case 'CARD_REVEAL_ALL':
-               // Update all to revealed (data usually comes with CARD_WELCOME sync or logic)
-               // But here we might just trust the list update from WELCOME/Sync that follows usually.
-               // Actually, Host broadcasts the list via WELCOME/Update message usually.
-               // Let's rely on CARD_WELCOME for state sync mostly.
+               // Server forced reveal. We trust the next CARD_WELCOME/Update to show cards.
                break;
           case 'CARD_RESULT':
               setWinnerId(data.winnerId);
@@ -255,17 +305,6 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
           case 'CHAT':
                setMessages(prev => [...prev.slice(-49), data.message]);
                break;
-      }
-  };
-
-  const handlePlayerReveal = () => {
-      const me = players.find(p => p.id === peerService.myId);
-      if (me && !me.isRevealed) {
-          const { score, text } = calculateScore(me.hand);
-          // Optimistic
-          setPlayers(prev => prev.map(p => p.id === me.id ? { ...p, isRevealed: true, score, scoreText: text } : p));
-          // Notify Host
-          peerService.sendToHost({ type: 'CARD_REVEAL', peerId: me.id, hand: me.hand });
       }
   };
 
@@ -278,6 +317,61 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
       }
   };
 
+  // --- CARD INTERACTION (FLIP) ---
+  const handleCardClick = (playerIndex: number, cardIndex: number) => {
+      const targetPlayer = players[playerIndex];
+      const isMe = targetPlayer.id === (role === GameRole.HOST ? 'host' : peerService.myId);
+      
+      // Only allow clicking my own cards
+      if (!isMe) return;
+      if (targetPlayer.isRevealed) return; // Already fully revealed
+      if (gameStatus !== GameStatus.PLAYING) return;
+
+      // Toggle hidden state locally
+      const newHand = [...targetPlayer.hand];
+      const clickedCard = newHand[cardIndex];
+      
+      if (!clickedCard.isHidden) return; // Already open
+
+      // Flip it open
+      newHand[cardIndex] = { ...clickedCard, isHidden: false };
+
+      // Check if all cards are now open
+      const allOpen = newHand.every(c => !c.isHidden);
+      
+      // Update local state
+      setPlayers(prev => {
+          const newPlayers = [...prev];
+          newPlayers[playerIndex] = { 
+              ...targetPlayer, 
+              hand: newHand,
+              isRevealed: allOpen // Mark as revealed if all open
+          };
+          
+          // If HOST, calculate score immediately and broadcast if all open
+          if (role === GameRole.HOST && allOpen) {
+              const { score, text } = calculateScore(newHand);
+              newPlayers[playerIndex].score = score;
+              newPlayers[playerIndex].scoreText = text;
+              
+              // Broadcast
+              setTimeout(() => {
+                  calculateLeader(newPlayers, 'host');
+                  broadcastUpdate(newPlayers);
+                  // Notify peers that host revealed (for specific animation triggers if needed)
+                  peerService.broadcast({ type: 'CARD_REVEAL', peerId: 'host', hand: newHand });
+              }, 0);
+          }
+          
+          return newPlayers;
+      });
+
+      // If PLAYER and all open, send to Host
+      if (role === GameRole.PLAYER && allOpen) {
+          peerService.sendToHost({ type: 'CARD_REVEAL', peerId: peerService.myId, hand: newHand });
+      }
+  };
+
   // --- CLEANUP ---
   useEffect(() => {
       return () => {
@@ -287,7 +381,7 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
 
   // --- UI RENDER ---
 
-  // LOBBY / SETUP
+  // LOBBY / SETUP (Keep existing code, just return normally)
   if (role === GameRole.NONE) {
       return (
         <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-green-900 text-white font-sans relative">
@@ -304,8 +398,8 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                     value={myName} 
                     onChange={e => setMyName(e.target.value)}
                  />
-                 <label className="flex items-center gap-2 mb-4 cursor-pointer">
-                    <input type="checkbox" checked={isAutoMode} onChange={e => setIsAutoMode(e.target.checked)} className="w-5 h-5" />
+                 <label className="flex items-center gap-2 mb-4 cursor-pointer select-none bg-green-900/50 p-2 rounded">
+                    <input type="checkbox" checked={isAutoMode} onChange={e => setIsAutoMode(e.target.checked)} className="w-5 h-5 accent-yellow-500" />
                     <span>Chế độ Bot tự chia & lật</span>
                  </label>
                  <button onClick={startHost} className="w-full bg-yellow-500 text-black font-bold py-3 rounded hover:bg-yellow-400">
@@ -346,22 +440,33 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                  <button onClick={() => { if(confirm('Thoát?')) { peerService.destroy(); setRole(GameRole.NONE); }}} className="bg-red-600 px-3 py-1 rounded text-sm font-bold">Thoát</button>
                  <div className="flex flex-col">
                     <span className="font-bold text-yellow-400">Phòng: {roomId}</span>
-                    <span className="text-xs text-gray-300">{isAutoMode ? '🤖 Bot Mode' : '👤 Manual Mode'}</span>
+                    <span className="text-xs text-gray-300 flex items-center gap-1">
+                        {isAutoMode ? '🤖 Bot' : '👤 Nặn Bài'}
+                        {gameStatus === GameStatus.LOBBY && <span className="text-yellow-200 animate-pulse">- Chờ chia bài...</span>}
+                    </span>
                  </div>
               </div>
+              
               {role === GameRole.HOST && (
                   <div className="flex gap-2">
                      <button 
                         onClick={handleDeal} 
                         disabled={isAutoMode && gameStatus === GameStatus.PLAYING}
-                        className="bg-yellow-500 text-black px-4 py-2 rounded font-bold hover:bg-yellow-400 disabled:opacity-50"
+                        className={`
+                            px-4 py-2 rounded font-bold transition-all shadow-lg
+                            ${(isAutoMode && gameStatus === GameStatus.PLAYING) 
+                                ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+                                : 'bg-yellow-500 text-black hover:bg-yellow-400 hover:scale-105 active:scale-95 animate-pulse-fast'
+                            }
+                        `}
                      >
-                        CHIA BÀI
+                        {gameStatus === GameStatus.LOBBY ? 'BẮT ĐẦU (CHIA)' : 'CHIA VÁN MỚI'}
                      </button>
+                     
                      {!isAutoMode && (
                         <button 
                              onClick={() => handleRevealAll()}
-                             className="bg-blue-600 px-4 py-2 rounded font-bold hover:bg-blue-500"
+                             className="bg-blue-600 px-4 py-2 rounded font-bold hover:bg-blue-500 shadow-lg text-xs sm:text-base"
                         >
                              LẬT HẾT
                         </button>
@@ -376,53 +481,50 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                  <span className="text-9xl font-black text-white">♠♥♣♦</span>
              </div>
              
-             {players.map(p => {
+             {players.map((p, pIdx) => {
                  const isMe = p.id === (role === GameRole.HOST ? 'host' : peerService.myId);
                  const isWinner = p.id === winnerId;
                  
                  return (
                      <div key={p.id} className={`
                         relative bg-green-800/80 backdrop-blur-sm p-4 rounded-xl border-2 flex flex-col items-center gap-2 min-w-[200px] transition-all duration-500
-                        ${isWinner ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.5)] scale-110 z-10' : 'border-white/30'}
+                        ${isWinner ? 'border-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.6)] scale-110 z-10' : 'border-white/30'}
                      `}>
-                        {isWinner && <div className="absolute -top-4 text-3xl animate-bounce">👑</div>}
+                        {isWinner && (
+                            <div className="absolute -top-6 text-yellow-400 font-black text-sm bg-black/50 px-2 py-1 rounded-full animate-bounce">
+                                👑 ĐANG DẪN ĐẦU
+                            </div>
+                        )}
                         
                         <div className="flex gap-1 sm:gap-2 h-24 sm:h-28">
                              {p.hand.length === 0 ? (
-                                 // Empty slots
-                                 [1,2,3].map(i => <div key={i} className="w-16 h-24 sm:w-20 sm:h-28 border-2 border-dashed border-white/20 rounded-lg"></div>)
+                                 [1,2,3].map(i => <div key={i} className="w-16 h-24 sm:w-20 sm:h-28 border-2 border-dashed border-white/20 rounded-lg bg-green-900/50"></div>)
                              ) : (
-                                 p.hand.map((card, idx) => (
+                                 p.hand.map((card, cIdx) => (
                                      <PlayingCard 
-                                        key={idx} 
+                                        key={cIdx} 
                                         card={card} 
-                                        revealed={p.isRevealed} 
-                                        onClick={() => {
-                                            if (isMe && !p.isRevealed) handlePlayerReveal();
-                                            if (role === GameRole.HOST && p.id === 'host' && !p.isRevealed) handleHostRevealSelf();
-                                        }}
+                                        revealed={!card.isHidden} // Pass individual hidden state
+                                        onClick={() => handleCardClick(pIdx, cIdx)}
                                      />
                                  ))
                              )}
                         </div>
 
-                        <div className="text-center w-full">
-                            <div className="font-bold text-lg truncate max-w-[150px] mx-auto">{p.name} {isMe && '(Bạn)'}</div>
+                        <div className="text-center w-full min-h-[50px]">
+                            <div className="font-bold text-lg truncate max-w-[150px] mx-auto text-yellow-50">{p.name} {isMe && '(Bạn)'}</div>
                             {p.isRevealed ? (
                                 <div className="text-yellow-400 font-black text-xl animate-pulse">{p.scoreText}</div>
                             ) : (
-                                <div className="text-gray-400 text-sm italic h-7">{gameStatus === GameStatus.PLAYING && p.hand.length > 0 ? 'Đang xem bài...' : 'Chờ chia...'}</div>
+                                <div className="text-gray-400 text-xs italic flex flex-col items-center">
+                                    {isMe && gameStatus === GameStatus.PLAYING ? (
+                                        <span className="text-blue-300 animate-pulse">👇 Bấm bài để lật!</span>
+                                    ) : (
+                                        <span>{gameStatus === GameStatus.PLAYING ? 'Đang nặn...' : '...'}</span>
+                                    )}
+                                </div>
                             )}
                         </div>
-
-                        {isMe && !p.isRevealed && p.hand.length > 0 && (
-                            <button 
-                                onClick={role === GameRole.HOST ? handleHostRevealSelf : handlePlayerReveal}
-                                className="mt-1 bg-blue-600 text-white text-xs px-3 py-1 rounded-full font-bold animate-bounce"
-                            >
-                                LẬT BÀI
-                            </button>
-                        )}
                      </div>
                  )
              })}
