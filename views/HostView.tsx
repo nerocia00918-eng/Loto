@@ -8,6 +8,32 @@ import { initializeGemini, getGeminiCommentary } from '../services/geminiService
 import { generatePlayerBoards, checkBoardWin } from '../utils/gameLogic';
 import { readNumberToVietnamese } from '../utils/numberReader';
 
+// Fallback phrases when Gemini is off
+const LOTO_PHRASES: Record<number, string[]> = {
+    1: ["Gì ra con mấy, con mấy gì ra. Trúc xinh trúc mọc đầu đình, em xinh em đứng một mình cũng xinh. Là con số 1."],
+    10: ["Tròn trĩnh như quả trứng gà, là con số 10."],
+    17: ["Mười bảy bẻ gãy sừng trâu. Là con 17."],
+    22: ["Tuy em nó xấu nhưng mà kết cấu nó đẹp. Là con 22."],
+    30: ["Ba mươi Tết đến nơi rồi, con 30."],
+    40: ["Bốn mươi, bốn mươi, ai cười thì cười."],
+    50: ["Năm mươi, năm mươi, nửa đời người."],
+    60: ["Sáu mươi năm cuộc đời. Con 60."],
+    // Generic rhyme fillers for others
+    999: [
+        "Cờ ra con mấy, con mấy gì ra.", 
+        "Lặng lặng mà nghe, tôi kêu con cờ ra.", 
+        "Gió thổi lung lay, bàn tay con số mấy."
+    ]
+};
+
+const getRandomPhrase = (num: number) => {
+    if (LOTO_PHRASES[num]) {
+        return LOTO_PHRASES[num][Math.floor(Math.random() * LOTO_PHRASES[num].length)];
+    }
+    const generics = LOTO_PHRASES[999];
+    return generics[Math.floor(Math.random() * generics.length)];
+}
+
 interface HostViewProps {
   onBack: () => void;
   calledNumbers: number[];
@@ -133,10 +159,9 @@ const HostView: React.FC<HostViewProps> = ({
     setIsAnimating(false);
 
     const numberText = readNumberToVietnamese(nextNum);
-    const prefixes = ["Số", "Con số", "Lô tô ra", "Cờ ra con mấy, con"];
-    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-    let spokenText = `${prefix} ${numberText}. Số ${numberText}.`;
-
+    let spokenText = "";
+    
+    // Logic: Nếu có API -> Dùng AI. Nếu không -> Dùng câu rao mặc định cho vui
     if (apiKeySet) {
       setIsLoadingCommentary(true);
       const comment = await getGeminiCommentary(nextNum);
@@ -144,8 +169,19 @@ const HostView: React.FC<HostViewProps> = ({
       if (comment) {
         setMcCommentary(comment);
         spokenText = `${comment} Số ${numberText}.`;
+      } else {
+          // Fallback if AI fails
+          const phrase = getRandomPhrase(nextNum);
+          setMcCommentary(phrase);
+          spokenText = `${phrase} Con số ${numberText}.`;
       }
-    } 
+    } else {
+        // No API Key
+        const phrase = getRandomPhrase(nextNum);
+        setMcCommentary(phrase);
+        spokenText = `${phrase} Con số ${numberText}.`;
+    }
+    
     speak(spokenText);
   };
 
@@ -314,7 +350,7 @@ const HostView: React.FC<HostViewProps> = ({
                 </div>
 
                 {/* MC Text */}
-                <div className="w-full text-center min-h-[40px] flex items-center justify-center">
+                <div className="w-full text-center min-h-[40px] flex items-center justify-center px-4">
                    {isLoadingCommentary ? (
                      <span className="text-xs text-gray-400 italic animate-pulse">MC AI đang soạn lời...</span>
                    ) : mcCommentary ? (

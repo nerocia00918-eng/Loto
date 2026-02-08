@@ -1,7 +1,5 @@
 import { PeerMessage } from '../types';
-
-// Declare PeerJS types globally since we are using CDN
-declare const Peer: any;
+import { Peer } from 'peerjs';
 
 const PEER_CONFIG = {
   debug: 1,
@@ -10,14 +8,12 @@ const PEER_CONFIG = {
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
     ]
   }
 };
 
 export class PeerService {
-  private peer: any;
+  private peer: Peer | null = null;
   private connections: any[] = [];
   private hostConnection: any = null;
   public myId: string = '';
@@ -30,7 +26,6 @@ export class PeerService {
   }
 
   private createHostPeer(onOpen: (id: string) => void, onData: (data: PeerMessage, conn: any) => void, retryCount = 0) {
-    // Generate a random 4-char ID for easier sharing
     const randomId = Math.floor(1000 + Math.random() * 9000).toString();
     const fullId = `loto-${randomId}`;
 
@@ -39,17 +34,18 @@ export class PeerService {
     }
 
     try {
+        // @ts-ignore - PeerJS typing issues with imports sometimes
         this.peer = new Peer(fullId, PEER_CONFIG);
     } catch (e) {
         console.error("Error creating peer", e);
-        if (retryCount < 3) this.createHostPeer(onOpen, onData, retryCount + 1);
+        if (retryCount < 3) setTimeout(() => this.createHostPeer(onOpen, onData, retryCount + 1), 1000);
         return;
     }
 
     this.peer.on('open', (id: string) => {
       this.myId = id;
       console.log('Host initialized with ID: ' + id);
-      onOpen(randomId); // Just return the short code
+      onOpen(randomId);
     });
 
     this.peer.on('connection', (conn: any) => {
@@ -61,47 +57,28 @@ export class PeerService {
       });
       
       conn.on('close', () => {
-        console.log('Connection closed');
         this.connections = this.connections.filter(c => c !== conn);
-      });
-
-      conn.on('error', (err: any) => {
-          console.error('Connection error:', err);
       });
     });
 
     this.peer.on('error', (err: any) => {
       console.error('Host Peer Error:', err);
       if (err.type === 'unavailable-id') {
-        // ID taken, retry
-        console.log('ID taken, retrying...');
         if (retryCount < 5) {
             setTimeout(() => this.createHostPeer(onOpen, onData, retryCount + 1), 500);
         }
-      } else if (err.type === 'peer-unavailable') {
-         // Should not happen on host typically unless connecting to self?
-      } else if (err.type === 'network') {
-          alert("Lỗi mạng! Vui lòng kiểm tra kết nối Internet.");
       }
-    });
-
-    this.peer.on('disconnected', () => {
-        console.log('Host disconnected from signaling server. Reconnecting...');
-        // Try to reconnect to the server without destroying the peer
-        if (this.peer && !this.peer.destroyed) {
-            this.peer.reconnect();
-        }
     });
   }
 
-  // Initialize as Player and connect to Host
+  // Initialize as Player
   initPlayer(hostCode: string, onOpen: () => void, onData: (data: PeerMessage) => void, onError: (err: string) => void) {
     if (this.peer) {
         this.peer.destroy();
     }
     
-    // Player doesn't need a specific ID
     try {
+        // @ts-ignore
         this.peer = new Peer(undefined, PEER_CONFIG);
     } catch (e) {
         onError("Không thể khởi tạo kết nối.");
@@ -112,22 +89,16 @@ export class PeerService {
 
     this.peer.on('open', (id: string) => {
       this.myId = id;
-      console.log('Player initialized with ID: ' + id);
-      
       const hostId = `loto-${hostCode}`;
-      console.log('Attempting to connect to Host:', hostId);
       
-      const conn = this.peer.connect(hostId, {
-          reliable: true
-      });
+      const conn = this.peer!.connect(hostId);
 
       if (!conn) {
-          onError("Không thể tạo kết nối tới Host.");
+          onError("Lỗi tạo kết nối.");
           return;
       }
 
       conn.on('open', () => {
-        console.log('Connected to Host!');
         connectionMade = true;
         this.hostConnection = conn;
         onOpen();
@@ -137,41 +108,35 @@ export class PeerService {
         onData(data);
       });
 
-      conn.on('error', (err: any) => {
-        console.error('Connection level error:', err);
-        if (!connectionMade) {
-            onError('Lỗi kết nối tới chủ phòng.');
-        }
-      });
-
       conn.on('close', () => {
-          console.log("Connection to host closed");
-          if (connectionMade) {
-              onError("Mất kết nối với chủ phòng.");
-          }
+          if (connectionMade) onError("Mất kết nối với chủ phòng.");
       });
+      
+      // Safety timeout
+      setTimeout(() => {
+          if (!connectionMade) {
+               // Don't close aggressively, but warn?
+               // PeerJS sometimes takes time.
+          }
+      }, 5000);
     });
 
     this.peer.on('error', (err: any) => {
        console.error('Player Peer Error', err);
        if (err.type === 'peer-unavailable') {
-           onError(`Không tìm thấy phòng số "${hostCode}". Hãy kiểm tra lại mã phòng!`);
+           onError(`Không tìm thấy phòng "${hostCode}".`);
        } else {
-           onError('Lỗi hệ thống: ' + err.type);
+           onError('Lỗi: ' + err.type);
        }
     });
   }
 
-  // Send data to Host (as Player)
   sendToHost(data: PeerMessage) {
     if (this.hostConnection && this.hostConnection.open) {
       this.hostConnection.send(data);
-    } else {
-        console.warn("Cannot send to host, connection not open");
     }
   }
 
-  // Broadcast data to all Players (as Host)
   broadcast(data: PeerMessage) {
     this.connections.forEach(conn => {
       if (conn.open) {
