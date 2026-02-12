@@ -85,6 +85,13 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   const handleHostData = (data: PeerMessage, conn: any) => {
     switch (data.type) {
       case 'JOIN':
+        // Check Limit 20
+        if (playersRef.current.length >= 20) {
+            conn.send({ type: 'CHAT', message: { id: 'sys', sender: 'System', text: 'Phòng đã đầy (20/20)!', isSystem: true, timestamp: Date.now() } });
+            // Optional: conn.close(); but PeerJS cleanup is tricky
+            return;
+        }
+
         const newPlayer: CardPlayer = { id: conn.peer, name: data.name, isReady: true, hand: [], isRevealed: false };
         
         setPlayers(prev => {
@@ -156,7 +163,20 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
      // Deal 3 cards to each
      const hands: Record<string, Card[]> = {};
      const newPlayers = players.map(p => {
-         const hand = [deck.pop()!, deck.pop()!, deck.pop()!].map(c => ({...c, isHidden: true}));
+         // Check if deck has enough cards (52 cards max ~17 players properly, but we reuse deck logic if needed or wrap around)
+         // Standard deck 52 cards. 20 players * 3 = 60 cards. We need 2 decks or refill.
+         // Logic fix: if deck empty, refill.
+         
+         const cardsForPlayer = [];
+         for(let i=0; i<3; i++) {
+             if(deck.length === 0) {
+                 const newDeck = shuffleDeck(createDeck());
+                 deck.push(...newDeck);
+             }
+             cardsForPlayer.push(deck.pop()!);
+         }
+         
+         const hand = cardsForPlayer.map(c => ({...c, isHidden: true}));
          hands[p.id] = hand;
          return { ...p, hand, isRevealed: false, score: undefined, scoreText: undefined };
      });
@@ -390,8 +410,10 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   }
 
   // PLAYING SCREEN - GRID LAYOUT
+  const isHost = role === GameRole.HOST;
+
   return (
-      <div className="fixed inset-0 w-full h-full bg-green-900 text-white grid grid-rows-[auto_auto_1fr_auto] overflow-hidden">
+      <div className={`fixed inset-0 w-full h-[100dvh] bg-green-900 text-white grid ${isHost ? 'grid-rows-[auto_auto_1fr_auto]' : 'grid-rows-[auto_1fr_auto]'} overflow-hidden`}>
           
           {/* EMERGENCY EXIT BUTTON - Always Top Right z-60 */}
           <button 
@@ -419,12 +441,12 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                  </div>
               </div>
               <div className="text-sm font-bold bg-green-800/50 px-3 py-1 rounded-full mr-8">
-                  👤 {players.length}
+                  👤 {players.length}/20
               </div>
           </div>
 
-          {/* 2. HOST CONTROLS (Row 2) */}
-          {role === GameRole.HOST ? (
+          {/* 2. HOST CONTROLS (Row 2 - ONLY FOR HOST) */}
+          {isHost && (
               <div className="bg-black/20 py-2 flex justify-center gap-3 z-40 backdrop-blur-sm border-b border-white/5">
                   <button 
                     onClick={handleDeal} 
@@ -449,11 +471,9 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                     </button>
                   )}
               </div>
-          ) : (
-             <div className="hidden"></div> /* Empty placeholder row if needed, or grid handles it */
           )}
 
-          {/* 3. GAME TABLE (Row 3 - Expands) */}
+          {/* 3. GAME TABLE (Next Row - Expands) */}
           <div className="relative overflow-y-auto bg-green-900/50 scrollbar-thin p-4">
                <div className="flex flex-wrap justify-center gap-4 sm:gap-6 pb-4 min-h-full content-center">
                      {/* Background Icon */}
@@ -468,9 +488,9 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                          
                          return (
                              <div key={p.id} className={`
-                                relative bg-green-800/90 backdrop-blur-md p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all duration-300 z-10
+                                relative bg-green-800/90 backdrop-blur-md p-2 rounded-xl border-2 flex flex-col items-center gap-1 transition-all duration-300 z-10
                                 ${isWinner ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.6)] scale-105 ring-2 ring-yellow-500' : 'border-white/20'}
-                                min-w-[160px] sm:min-w-[180px]
+                                min-w-[140px] sm:min-w-[160px]
                              `}>
                                 {isWinner && (
                                     <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-black text-[10px] font-black px-3 py-1 rounded-full z-30 animate-bounce whitespace-nowrap shadow-md">
@@ -479,9 +499,9 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                                 )}
                                 
                                 {/* Cards */}
-                                <div className="flex justify-center h-20 sm:h-24 perspective-1000 -space-x-2">
+                                <div className="flex justify-center h-16 sm:h-20 perspective-1000 -space-x-2">
                                      {p.hand.length === 0 ? (
-                                         [1,2,3].map(i => <div key={i} className="w-14 h-20 sm:w-16 sm:h-24 bg-green-950/40 border border-white/10 rounded-lg mx-0.5"></div>)
+                                         [1,2,3].map(i => <div key={i} className="w-10 h-16 sm:w-14 sm:h-20 bg-green-950/40 border border-white/10 rounded-lg mx-0.5"></div>)
                                      ) : (
                                          p.hand.map((card, cIdx) => (
                                              <div key={cIdx} className="mx-0.5 transform transition-transform hover:-translate-y-2">
@@ -497,15 +517,15 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
 
                                 {/* Info */}
                                 <div className="text-center w-full mt-1">
-                                    <div className={`font-bold text-sm truncate max-w-[140px] mx-auto ${isMe ? 'text-yellow-300' : 'text-white'}`}>
+                                    <div className={`font-bold text-xs truncate max-w-[120px] mx-auto ${isMe ? 'text-yellow-300' : 'text-white'}`}>
                                         {p.name} {isMe && '(Tôi)'}
                                     </div>
                                     
-                                    <div className="h-6 flex items-center justify-center">
+                                    <div className="h-5 flex items-center justify-center">
                                         {p.isRevealed ? (
-                                            <span className="text-yellow-400 font-black text-lg drop-shadow-md animate-pulse">{p.scoreText}</span>
+                                            <span className="text-yellow-400 font-black text-sm drop-shadow-md animate-pulse">{p.scoreText}</span>
                                         ) : (
-                                            <span className="text-gray-400 text-xs italic">
+                                            <span className="text-gray-400 text-[10px] italic">
                                                 {gameStatus === GameStatus.PLAYING 
                                                     ? (isMe ? '👇 Bấm bài!' : 'Đang nặn...') 
                                                     : '...'}
@@ -519,7 +539,7 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                  </div>
           </div>
 
-          {/* 4. CHAT BOX (Row 4 - Fixed) */}
+          {/* 4. CHAT BOX (Last Row - Fixed) */}
           <div className="h-48 z-30 bg-white border-t-4 border-green-800 shrink-0">
              <ChatBox messages={messages} onSendMessage={handleSendMessage} senderName={myName} />
           </div>

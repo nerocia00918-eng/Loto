@@ -3,13 +3,21 @@ import { Peer } from 'peerjs';
 
 const PEER_CONFIG = {
   debug: 1,
+  pingInterval: 5000, // Keep-alive heartbeat every 5s
   config: {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
     ]
   }
+};
+
+const CONNECTION_CONFIG = {
+    reliable: true,
+    serialization: 'json' as const, // Fix type issue
 };
 
 export class PeerService {
@@ -34,7 +42,7 @@ export class PeerService {
     }
 
     try {
-        // @ts-ignore - PeerJS typing issues with imports sometimes
+        // @ts-ignore
         this.peer = new Peer(fullId, PEER_CONFIG);
     } catch (e) {
         console.error("Error creating peer", e);
@@ -57,7 +65,12 @@ export class PeerService {
       });
       
       conn.on('close', () => {
+        console.log("Connection closed");
         this.connections = this.connections.filter(c => c !== conn);
+      });
+      
+      conn.on('error', (err: any) => {
+          console.error("Connection error:", err);
       });
     });
 
@@ -81,26 +94,41 @@ export class PeerService {
         // @ts-ignore
         this.peer = new Peer(undefined, PEER_CONFIG);
     } catch (e) {
-        onError("Không thể khởi tạo kết nối.");
+        onError("Không thể khởi tạo kết nối mạng.");
         return;
     }
 
     let connectionMade = false;
+    let connectTimeout: any = null;
 
     this.peer.on('open', (id: string) => {
       this.myId = id;
       const hostId = `loto-${hostCode}`;
       
-      const conn = this.peer!.connect(hostId);
+      console.log(`My ID: ${id}. Connecting to Host: ${hostId}`);
+
+      // Attempt connection
+      const conn = this.peer!.connect(hostId, CONNECTION_CONFIG);
 
       if (!conn) {
           onError("Lỗi tạo kết nối.");
           return;
       }
 
+      // Set a generous timeout for mobile networks (15s)
+      connectTimeout = setTimeout(() => {
+          if (!connectionMade) {
+               console.warn("Connection timed out");
+               conn.close();
+               onError("Kết nối quá lâu (Timeout). Vui lòng kiểm tra mạng hoặc thử lại.");
+          }
+      }, 15000);
+
       conn.on('open', () => {
+        clearTimeout(connectTimeout);
         connectionMade = true;
         this.hostConnection = conn;
+        console.log("Connected to Host!");
         onOpen();
       });
 
@@ -112,21 +140,22 @@ export class PeerService {
           if (connectionMade) onError("Mất kết nối với chủ phòng.");
       });
       
-      // Safety timeout
-      setTimeout(() => {
-          if (!connectionMade) {
-               // Don't close aggressively, but warn?
-               // PeerJS sometimes takes time.
-          }
-      }, 5000);
+      conn.on('error', (err: any) => {
+          console.error("Connection level error:", err);
+      });
     });
 
     this.peer.on('error', (err: any) => {
        console.error('Player Peer Error', err);
+       clearTimeout(connectTimeout);
        if (err.type === 'peer-unavailable') {
-           onError(`Không tìm thấy phòng "${hostCode}".`);
+           onError(`Không tìm thấy phòng "${hostCode}". Có thể Host đã thoát hoặc nhập sai mã.`);
+       } else if (err.type === 'disconnected') {
+           onError('Mất kết nối mạng.');
+       } else if (err.type === 'network') {
+           onError('Lỗi mạng. Vui lòng kiểm tra Wifi/4G.');
        } else {
-           onError('Lỗi: ' + err.type);
+           onError(`Lỗi kết nối (${err.type}). Thử lại nhé.`);
        }
     });
   }
@@ -134,6 +163,8 @@ export class PeerService {
   sendToHost(data: PeerMessage) {
     if (this.hostConnection && this.hostConnection.open) {
       this.hostConnection.send(data);
+    } else {
+        console.warn("Cannot send to host: Connection not open");
     }
   }
 
