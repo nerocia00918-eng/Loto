@@ -1,27 +1,16 @@
 import { PeerMessage } from '../types';
 import { Peer } from 'peerjs';
 
-const PEER_CONFIG = {
-  debug: 1,
-  pingInterval: 5000,
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
-      { urls: 'stun:stun.ekiga.net' },
-      { urls: 'stun:stun.ideasip.com' },
-      { urls: 'stun:stun.schlund.de' },
-      { urls: 'stun:stun.voiparound.com' },
-      { urls: 'stun:stun.voipbuster.com' },
-      { urls: 'stun:stun.voipstunt.com' },
-      { urls: 'stun:stun.voxgratia.org' }
-    ],
-    iceCandidatePoolSize: 10, // Pre-fetch candidates to speed up connection
-  }
-};
+// Default Public STUN Servers (Free, but sometimes blocked by symmetric NAT/4G)
+const DEFAULT_ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
+  { urls: 'stun:stun.ekiga.net' },
+  { urls: 'stun:stun.ideasip.com' },
+];
 
 const CONNECTION_CONFIG = {
     reliable: true,
@@ -35,6 +24,38 @@ export class PeerService {
   public myId: string = '';
 
   constructor() {}
+
+  // Helper to get config mixing default STUN + Custom TURN
+  private getPeerConfig() {
+    let iceServers: any[] = [...DEFAULT_ICE_SERVERS];
+    
+    // Load custom TURN from LocalStorage
+    try {
+        const stored = localStorage.getItem('loto_turn_config');
+        if (stored) {
+            const custom = JSON.parse(stored);
+            if (custom.turnUrl && custom.turnUser && custom.turnPass) {
+                console.log("Using Custom TURN Server");
+                iceServers.unshift({
+                    urls: custom.turnUrl,
+                    username: custom.turnUser,
+                    credential: custom.turnPass
+                });
+            }
+        }
+    } catch (e) {
+        console.error("Error loading TURN config", e);
+    }
+
+    return {
+      debug: 1,
+      pingInterval: 5000,
+      config: {
+        iceServers: iceServers,
+        iceCandidatePoolSize: 10,
+      }
+    };
+  }
 
   // Initialize as Host
   initHost(onOpen: (id: string) => void, onData: (data: PeerMessage, conn: any) => void) {
@@ -51,7 +72,7 @@ export class PeerService {
 
     try {
         // @ts-ignore
-        this.peer = new Peer(fullId, PEER_CONFIG);
+        this.peer = new Peer(fullId, this.getPeerConfig());
     } catch (e) {
         console.error("Error creating peer", e);
         if (retryCount < 3) setTimeout(() => this.createHostPeer(onOpen, onData, retryCount + 1), 1000);
@@ -100,7 +121,7 @@ export class PeerService {
     
     try {
         // @ts-ignore
-        this.peer = new Peer(undefined, PEER_CONFIG);
+        this.peer = new Peer(undefined, this.getPeerConfig());
     } catch (e) {
         onError("Không thể khởi tạo kết nối mạng.");
         return;
@@ -128,7 +149,7 @@ export class PeerService {
           if (!connectionMade) {
                console.warn("Connection timed out");
                conn.close();
-               onError("Không thể kết nối. Hãy thử dùng chung Wifi với Host hoặc tắt/bật lại mạng.");
+               onError("Kết nối quá lâu (Timeout). Hãy thử cấu hình TURN Server trong Cài đặt.");
           }
       }, 15000);
 
@@ -157,13 +178,13 @@ export class PeerService {
        console.error('Player Peer Error', err);
        clearTimeout(connectTimeout);
        if (err.type === 'peer-unavailable') {
-           onError(`Không tìm thấy phòng "${hostCode}". Hãy kiểm tra lại mã hoặc bảo Host tạo lại phòng.`);
+           onError(`Không tìm thấy phòng "${hostCode}". Có thể Host đã thoát hoặc bạn nhập sai mã.`);
        } else if (err.type === 'disconnected') {
            onError('Mất kết nối mạng.');
        } else if (err.type === 'network') {
-           onError('Lỗi mạng hoặc tường lửa chặn. Hãy thử dùng chung Wifi.');
+           onError('Tường lửa chặn kết nối (NAT). Hãy cấu hình TURN Server trong menu chính.');
        } else {
-           onError(`Lỗi kết nối (${err.type}). Thử lại nhé.`);
+           onError(`Lỗi kết nối (${err.type}).`);
        }
     });
   }
