@@ -6,20 +6,51 @@ import CardGame from './views/CardGame';
 const App: React.FC = () => {
   const [appMode, setAppMode] = useState<AppMode>(AppMode.MENU);
   const [showSettings, setShowSettings] = useState(false);
+  const [initialRoomId, setInitialRoomId] = useState('');
 
   // Settings State
   const [turnUrl, setTurnUrl] = useState('');
   const [turnUser, setTurnUser] = useState('');
   const [turnPass, setTurnPass] = useState('');
 
+  // Handle Invite Link & Load Config
   useEffect(() => {
+    // 1. Load Local Config
     const stored = localStorage.getItem('loto_turn_config');
     if (stored) {
-        const config = JSON.parse(stored);
-        setTurnUrl(config.turnUrl || '');
-        setTurnUser(config.turnUser || '');
-        setTurnPass(config.turnPass || '');
+        try {
+            const config = JSON.parse(stored);
+            setTurnUrl(config.turnUrl || '');
+            setTurnUser(config.turnUser || '');
+            setTurnPass(config.turnPass || '');
+        } catch(e) {}
     }
+
+    // 2. Parse URL Params (Invite Link)
+    const params = new URLSearchParams(window.location.search);
+    const pGame = params.get('game');
+    const pRoom = params.get('room');
+    const pTUrl = params.get('t_url');
+    const pTUser = params.get('t_u');
+    const pTPass = params.get('t_p');
+
+    // Save TURN config from URL if present
+    if (pTUrl && pTUser && pTPass) {
+        const newConfig = { turnUrl: pTUrl, turnUser: pTUser, turnPass: pTPass };
+        localStorage.setItem('loto_turn_config', JSON.stringify(newConfig));
+        setTurnUrl(pTUrl);
+        setTurnUser(pTUser);
+        setTurnPass(pTPass);
+        // Clear params from URL to look cleaner (optional)
+        window.history.replaceState({}, '', window.location.pathname);
+        alert("Đã tự động cấu hình mạng từ Link mời! Bạn có thể chơi ngay.");
+    }
+
+    // Auto-navigate
+    if (pRoom) setInitialRoomId(pRoom);
+    if (pGame === 'loto') setAppMode(AppMode.LOTO);
+    if (pGame === 'card') setAppMode(AppMode.CARD);
+
   }, []);
 
   const saveSettings = () => {
@@ -39,11 +70,11 @@ const App: React.FC = () => {
   };
 
   if (appMode === AppMode.LOTO) {
-    return <LotoGame onBackToMenu={() => setAppMode(AppMode.MENU)} />;
+    return <LotoGame initialRoomId={initialRoomId} onBackToMenu={() => setAppMode(AppMode.MENU)} />;
   }
 
   if (appMode === AppMode.CARD) {
-    return <CardGame onBackToMenu={() => setAppMode(AppMode.MENU)} />;
+    return <CardGame initialRoomId={initialRoomId} onBackToMenu={() => setAppMode(AppMode.MENU)} />;
   }
 
   // Main Menu

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GameRole, ChatMessage, GameStatus, PlayerInfo, PeerMessage, ClaimData } from '../types';
 import HostView from './HostView';
 import PlayerView from './PlayerView';
@@ -17,10 +17,11 @@ const BgPattern = () => (
 );
 
 interface LotoGameProps {
+    initialRoomId?: string;
     onBackToMenu: () => void;
 }
 
-const LotoGame: React.FC<LotoGameProps> = ({ onBackToMenu }) => {
+const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu }) => {
   const [role, setRole] = useState<GameRole>(GameRole.NONE);
   const [gameStatus, setGameStatus] = useState<GameStatus>(GameStatus.LOBBY);
   
@@ -30,7 +31,7 @@ const LotoGame: React.FC<LotoGameProps> = ({ onBackToMenu }) => {
   const [pendingClaim, setPendingClaim] = useState<ClaimData | null>(null);
 
   // Player Specific
-  const [joinRoomId, setJoinRoomId] = useState('');
+  const [joinRoomId, setJoinRoomId] = useState(initialRoomId);
   const [myPlayerName, setMyPlayerName] = useState('');
   const [isJoining, setIsJoining] = useState(false);
   const [claimRejectionCount, setClaimRejectionCount] = useState(0);
@@ -40,6 +41,10 @@ const LotoGame: React.FC<LotoGameProps> = ({ onBackToMenu }) => {
   const [currentNumber, setCurrentNumber] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [winnerName, setWinnerName] = useState<string | null>(null);
+
+  useEffect(() => {
+     if (initialRoomId) setJoinRoomId(initialRoomId);
+  }, [initialRoomId]);
 
   const addMessage = (sender: string, text: string, isSystem = false) => {
     const newMessage: ChatMessage = {
@@ -65,6 +70,38 @@ const LotoGame: React.FC<LotoGameProps> = ({ onBackToMenu }) => {
         handleHostData(data, conn);
       }
     );
+  };
+
+  const handleShareLink = async () => {
+      // Build Invite Link
+      const baseUrl = window.location.origin + window.location.pathname;
+      const params = new URLSearchParams();
+      params.set('game', 'loto');
+      params.set('room', roomId);
+      
+      // Include TURN config if exists in localStorage (to help friends connect easily)
+      const stored = localStorage.getItem('loto_turn_config');
+      if (stored) {
+          const c = JSON.parse(stored);
+          if (c.turnUrl) params.set('t_url', c.turnUrl);
+          if (c.turnUser) params.set('t_u', c.turnUser);
+          if (c.turnPass) params.set('t_p', c.turnPass);
+      }
+
+      const shareUrl = `${baseUrl}?${params.toString()}`;
+
+      if (navigator.share) {
+          try {
+              await navigator.share({
+                  title: 'Mời chơi Lô tô!',
+                  text: `Vào phòng ${roomId} chơi Lô tô với tớ nhé!`,
+                  url: shareUrl
+              });
+          } catch (e) { console.log(e); }
+      } else {
+          navigator.clipboard.writeText(shareUrl);
+          alert("Đã copy link mời! Gửi cho bạn bè nhé.");
+      }
   };
 
   const handleHostData = (data: PeerMessage, conn: any) => {
@@ -255,6 +292,68 @@ const LotoGame: React.FC<LotoGameProps> = ({ onBackToMenu }) => {
               </div>
             </div>
         </div>
+    );
+  }
+
+  // --- LOBBY (HOST) ---
+  if (role === GameRole.HOST && gameStatus === GameStatus.LOBBY) {
+    return (
+      <div className="flex flex-col h-screen items-center justify-center p-6 bg-loto-cream font-sans">
+         <div className="bg-white p-8 rounded-3xl shadow-xl max-w-lg w-full border-4 border-loto-red text-center">
+            <h1 className="text-3xl font-hand font-bold text-loto-red mb-2">Phòng Chờ</h1>
+            <p className="text-gray-500 mb-6">Mời bạn bè nhập mã bên dưới để vào phòng</p>
+            
+            <div className="bg-gray-100 p-4 rounded-xl mb-4">
+                <span className="block text-xs text-gray-500 uppercase tracking-widest">Mã Phòng</span>
+                <span className="text-5xl font-black text-blue-600 tracking-wider">{roomId || '...'}</span>
+            </div>
+
+            <button 
+                onClick={handleShareLink} 
+                className="mb-6 w-full py-2 bg-blue-50 text-blue-600 font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-2"
+            >
+                📤 Gửi Link Mời (Zalo/FB)
+            </button>
+
+            <div className="mb-6">
+                <h3 className="text-left text-sm font-bold text-gray-400 uppercase mb-2">Người chơi đã vào ({connectedPlayers.length})</h3>
+                <div className="bg-gray-50 rounded-xl p-2 max-h-40 overflow-y-auto border border-gray-200">
+                    {connectedPlayers.length === 0 ? (
+                        <p className="text-gray-400 italic text-sm py-4">Đang chờ người chơi...</p>
+                    ) : (
+                        connectedPlayers.map((p, i) => (
+                            <div key={i} className="flex items-center gap-2 p-2 border-b last:border-0">
+                                <div className="w-8 h-8 rounded-full bg-loto-yellow text-white flex items-center justify-center font-bold">
+                                    {p.name.charAt(0)}
+                                </div>
+                                <span className="font-medium text-gray-700">{p.name}</span>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+
+            <button 
+                onClick={handleStartGameHost}
+                disabled={connectedPlayers.length === 0}
+                className="w-full bg-loto-red text-white py-4 rounded-xl font-bold text-xl shadow-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                BẮT ĐẦU CHƠI
+            </button>
+            
+            <button 
+                onClick={() => {
+                     if(confirm("Hủy phòng?")) {
+                         peerService.destroy();
+                         setRole(GameRole.NONE);
+                     }
+                }} 
+                className="mt-4 text-gray-400 hover:text-red-500 text-sm"
+            >
+                Hủy phòng
+            </button>
+         </div>
+      </div>
     );
   }
 

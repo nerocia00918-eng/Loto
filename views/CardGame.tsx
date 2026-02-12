@@ -6,10 +6,11 @@ import PlayingCard from '../components/PlayingCard';
 import ChatBox from '../components/ChatBox';
 
 interface CardGameProps {
+  initialRoomId?: string;
   onBackToMenu: () => void;
 }
 
-const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
+const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu }) => {
   const [role, setRole] = useState<GameRole>(GameRole.NONE);
   const [gameStatus, setGameStatus] = useState<GameStatus>(GameStatus.LOBBY);
   
@@ -19,7 +20,7 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   
   // Common
   const [myName, setMyName] = useState('');
-  const [joinRoomId, setJoinRoomId] = useState('');
+  const [joinRoomId, setJoinRoomId] = useState(initialRoomId);
   const [players, setPlayers] = useState<CardPlayer[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [winnerId, setWinnerId] = useState<string | null>(null);
@@ -36,6 +37,9 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   useEffect(() => { playersRef.current = players; }, [players]);
   useEffect(() => { gameStatusRef.current = gameStatus; }, [gameStatus]);
   useEffect(() => { winnerIdRef.current = winnerId; }, [winnerId]);
+  useEffect(() => {
+     if (initialRoomId) setJoinRoomId(initialRoomId);
+  }, [initialRoomId]);
 
   const addMessage = (sender: string, text: string, isSystem = false) => {
     const newMessage: ChatMessage = {
@@ -84,6 +88,36 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
          handleHostData(data, conn);
       }
     );
+  };
+
+  const handleShareLink = async () => {
+      const baseUrl = window.location.origin + window.location.pathname;
+      const params = new URLSearchParams();
+      params.set('game', 'card');
+      params.set('room', roomId);
+      
+      const stored = localStorage.getItem('loto_turn_config');
+      if (stored) {
+          const c = JSON.parse(stored);
+          if (c.turnUrl) params.set('t_url', c.turnUrl);
+          if (c.turnUser) params.set('t_u', c.turnUser);
+          if (c.turnPass) params.set('t_p', c.turnPass);
+      }
+
+      const shareUrl = `${baseUrl}?${params.toString()}`;
+
+      if (navigator.share) {
+          try {
+              await navigator.share({
+                  title: 'Mời chơi Bài Cào!',
+                  text: `Vào phòng ${roomId} chơi Bài Cào nhé!`,
+                  url: shareUrl
+              });
+          } catch (e) { console.log(e); }
+      } else {
+          navigator.clipboard.writeText(shareUrl);
+          alert("Đã copy link mời! Gửi cho bạn bè nhé.");
+      }
   };
 
   const handleHostData = (data: PeerMessage, conn: any) => {
@@ -420,6 +454,58 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
            </div>
         </div>
       );
+  }
+
+  // HOST LOBBY
+  if (role === GameRole.HOST && gameStatus === GameStatus.LOBBY) {
+      return (
+         <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-green-900 text-white font-sans">
+            <div className="bg-green-800 border-4 border-yellow-500 rounded-2xl p-8 max-w-lg w-full text-center shadow-2xl">
+                 <h2 className="text-3xl font-black text-yellow-400 mb-2">PHÒNG CHỜ</h2>
+                 <p className="text-gray-300 mb-4">Chia sẻ mã hoặc link để mời bạn bè</p>
+                 
+                 <div className="bg-green-900 p-4 rounded-xl mb-4 border border-green-700">
+                     <span className="text-xs text-gray-400 uppercase font-bold">Mã Phòng</span>
+                     <div className="text-5xl font-black text-white">{roomId}</div>
+                 </div>
+
+                 <button 
+                    onClick={handleShareLink} 
+                    className="mb-6 w-full py-3 bg-yellow-500 text-black font-bold rounded-lg hover:bg-yellow-400 flex items-center justify-center gap-2 shadow-lg"
+                 >
+                    📤 Gửi Link Mời 1 Chạm
+                 </button>
+
+                 <div className="mb-6 bg-black/20 p-4 rounded-xl">
+                    <h3 className="text-left text-sm font-bold text-gray-400 uppercase mb-2">Người chơi ({players.length})</h3>
+                    <div className="max-h-40 overflow-y-auto">
+                        {players.map((p, i) => (
+                            <div key={i} className="flex items-center gap-2 py-1 border-b border-white/10 last:border-0">
+                                <span className="text-xl">👤</span>
+                                <span className="font-bold">{p.name} {p.id === 'host' && '(Host)'}</span>
+                            </div>
+                        ))}
+                    </div>
+                 </div>
+
+                 <button onClick={handleDeal} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-xl hover:bg-blue-500 shadow-xl mb-3">
+                    BẮT ĐẦU CHƠI
+                 </button>
+
+                 <button 
+                    onClick={() => {
+                        if(confirm("Hủy phòng?")) {
+                            peerService.destroy();
+                            setRole(GameRole.NONE);
+                        }
+                    }}
+                    className="text-gray-400 hover:text-white text-sm"
+                 >
+                    Hủy phòng
+                 </button>
+            </div>
+         </div>
+      )
   }
 
   // PLAYING SCREEN - GRID LAYOUT
