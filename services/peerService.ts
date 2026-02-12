@@ -3,7 +3,7 @@ import { Peer } from 'peerjs';
 
 const PEER_CONFIG = {
   debug: 1,
-  pingInterval: 5000, // Keep-alive heartbeat every 5s
+  pingInterval: 5000,
   config: {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
@@ -11,13 +11,21 @@ const PEER_CONFIG = {
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun4.l.google.com:19302' },
-    ]
+      { urls: 'stun:stun.ekiga.net' },
+      { urls: 'stun:stun.ideasip.com' },
+      { urls: 'stun:stun.schlund.de' },
+      { urls: 'stun:stun.voiparound.com' },
+      { urls: 'stun:stun.voipbuster.com' },
+      { urls: 'stun:stun.voipstunt.com' },
+      { urls: 'stun:stun.voxgratia.org' }
+    ],
+    iceCandidatePoolSize: 10, // Pre-fetch candidates to speed up connection
   }
 };
 
 const CONNECTION_CONFIG = {
     reliable: true,
-    serialization: 'json' as const, // Fix type issue
+    serialization: 'json' as const,
 };
 
 export class PeerService {
@@ -120,7 +128,7 @@ export class PeerService {
           if (!connectionMade) {
                console.warn("Connection timed out");
                conn.close();
-               onError("Kết nối quá lâu (Timeout). Vui lòng kiểm tra mạng hoặc thử lại.");
+               onError("Không thể kết nối. Hãy thử dùng chung Wifi với Host hoặc tắt/bật lại mạng.");
           }
       }, 15000);
 
@@ -149,11 +157,11 @@ export class PeerService {
        console.error('Player Peer Error', err);
        clearTimeout(connectTimeout);
        if (err.type === 'peer-unavailable') {
-           onError(`Không tìm thấy phòng "${hostCode}". Có thể Host đã thoát hoặc nhập sai mã.`);
+           onError(`Không tìm thấy phòng "${hostCode}". Hãy kiểm tra lại mã hoặc bảo Host tạo lại phòng.`);
        } else if (err.type === 'disconnected') {
            onError('Mất kết nối mạng.');
        } else if (err.type === 'network') {
-           onError('Lỗi mạng. Vui lòng kiểm tra Wifi/4G.');
+           onError('Lỗi mạng hoặc tường lửa chặn. Hãy thử dùng chung Wifi.');
        } else {
            onError(`Lỗi kết nối (${err.type}). Thử lại nhé.`);
        }

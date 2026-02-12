@@ -23,6 +23,9 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   const [players, setPlayers] = useState<CardPlayer[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [winnerId, setWinnerId] = useState<string | null>(null);
+  
+  // Joining State
+  const [isJoining, setIsJoining] = useState(false);
 
   // Refs
   const playersRef = useRef<CardPlayer[]>([]);
@@ -59,6 +62,7 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
           setMessages([]);
           setGameStatus(GameStatus.LOBBY);
           setWinnerId(null);
+          setIsJoining(false);
       }
   };
 
@@ -261,15 +265,21 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
   // --- PLAYER LOGIC ---
   const startPlayer = () => {
     if(!myName || !joinRoomId) return alert("Nhập đủ thông tin!");
-    setRole(GameRole.PLAYER);
+    setIsJoining(true);
     
     peerService.initPlayer(
         joinRoomId.trim(),
         () => {
+            setRole(GameRole.PLAYER);
+            setIsJoining(false);
             peerService.sendToHost({ type: 'JOIN', name: myName });
         },
         (data) => handlePlayerData(data),
-        (err) => { alert(err); setRole(GameRole.NONE); }
+        (err) => { 
+            alert(err); 
+            setIsJoining(false);
+            setRole(GameRole.NONE); 
+        }
     );
   };
 
@@ -400,9 +410,12 @@ const CardGame: React.FC<CardGameProps> = ({ onBackToMenu }) => {
                     value={joinRoomId} 
                     onChange={e => setJoinRoomId(e.target.value)}
                  />
-                 <button onClick={startPlayer} className="w-full bg-white text-green-900 font-bold py-3 rounded hover:bg-gray-200">
-                    Tham Gia
+                 <button onClick={startPlayer} disabled={isJoining} className="w-full bg-white text-green-900 font-bold py-3 rounded hover:bg-gray-200 disabled:opacity-50">
+                    {isJoining ? 'Đang kết nối...' : 'Tham Gia'}
                  </button>
+                 <p className="mt-4 text-xs text-center text-gray-300 bg-black/20 p-2 rounded">
+                    ⚠️ <b>Lưu ý:</b> Nếu bị lỗi "Đang kết nối", vui lòng dùng chung Wifi với chủ phòng hoặc tắt 4G.
+                 </p>
               </div>
            </div>
         </div>
