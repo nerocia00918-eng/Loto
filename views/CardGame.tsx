@@ -18,6 +18,7 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
   const [roomId, setRoomId] = useState<string>('');
   const [isAutoMode, setIsAutoMode] = useState(false);
   const [lanIp, setLanIp] = useState(''); // LAN IP input for Host
+  const [showDeployGuide, setShowDeployGuide] = useState(false);
   
   // Common
   const [myName, setMyName] = useState('');
@@ -496,23 +497,49 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
                  <h2 className="text-3xl font-black text-yellow-400 mb-2">PHÒNG CHỜ</h2>
                  <p className="text-gray-300 mb-4">Quét QR hoặc nhập mã để vào</p>
                  
+                 {/* DEPLOYMENT GUIDE MODAL */}
+                {showDeployGuide && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+                        <div className="bg-green-900 border border-yellow-500 p-6 rounded-2xl max-w-md w-full text-left relative text-gray-100">
+                            <button onClick={() => setShowDeployGuide(false)} className="absolute top-2 right-2 text-gray-400 hover:text-white font-bold text-xl">✕</button>
+                            <h3 className="text-xl font-bold text-yellow-400 mb-4">🚀 Cách chơi Online 100% không lỗi</h3>
+                            <p className="text-sm text-gray-300 mb-4">
+                                Chạy trên máy tính (localhost) thường bị lỗi khi dùng 4G.
+                                Hãy đưa game lên mạng thật bằng <b>Vercel</b>:
+                            </p>
+                            <ol className="list-decimal list-inside text-sm space-y-2 mb-4">
+                                <li>Vào <a href="https://github.com/new" target="_blank" className="text-yellow-400 underline font-bold">GitHub</a> tạo Repo mới.</li>
+                                <li>Tải code này lên GitHub.</li>
+                                <li>Vào <a href="https://vercel.com/new" target="_blank" className="text-yellow-400 underline font-bold">Vercel.com</a>, đăng nhập GitHub.</li>
+                                <li>Chọn Repo, bấm <b>Deploy</b>.</li>
+                                <li>Lấy Link Vercel gửi cho bạn bè.</li>
+                            </ol>
+                        </div>
+                    </div>
+                )}
+
                  {/* LAN IP Input */}
                  {isLocalhost && (
-                    <div className="mb-4 p-3 bg-black/30 rounded-lg border border-green-500/50">
-                        <p className="text-xs text-green-300 font-bold mb-1 text-left">
-                            ℹ️ Cách để điện thoại vào được (cùng Wifi):
-                        </p>
-                        <div className="text-xs text-gray-300 text-left mb-2">
-                            1. Xem cửa sổ đen (Terminal) dòng <span className="font-mono bg-black/50 px-1 border border-white/20">Network: http://xxx...</span>
-                            <br/>2. Nhập số đó vào đây:
+                    <div className="mb-4">
+                         <button 
+                            onClick={() => setShowDeployGuide(true)}
+                            className="w-full bg-yellow-500/20 text-yellow-300 font-bold py-2 rounded-lg border border-yellow-500/50 animate-pulse hover:bg-yellow-500/30"
+                         >
+                            🌐 Bấm xem cách chơi qua 4G/Internet
+                         </button>
+
+                        <div className="mt-2 p-3 bg-black/30 rounded-lg border border-green-500/50">
+                            <p className="text-xs text-green-300 font-bold mb-1 text-left">
+                                Hoặc chơi chung Wifi thì nhập IP máy:
+                            </p>
+                            <input 
+                                type="text" 
+                                placeholder="VD: 192.168.1.15" 
+                                className="w-full bg-black/50 border border-green-500 rounded px-2 py-1 text-center font-bold text-green-300 placeholder-gray-600"
+                                value={lanIp}
+                                onChange={(e) => setLanIp(e.target.value)}
+                            />
                         </div>
-                        <input 
-                            type="text" 
-                            placeholder="VD: 192.168.1.15" 
-                            className="w-full bg-black/50 border border-green-500 rounded px-2 py-1 text-center font-bold text-green-300 placeholder-gray-600"
-                            value={lanIp}
-                            onChange={(e) => setLanIp(e.target.value)}
-                        />
                     </div>
                 )}
 

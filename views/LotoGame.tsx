@@ -30,6 +30,7 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
   const [connectedPlayers, setConnectedPlayers] = useState<PlayerInfo[]>([]);
   const [pendingClaim, setPendingClaim] = useState<ClaimData | null>(null);
   const [lanIp, setLanIp] = useState(''); // New state for LAN IP input
+  const [showDeployGuide, setShowDeployGuide] = useState(false);
 
   // Player Specific
   const [joinRoomId, setJoinRoomId] = useState(initialRoomId);
@@ -336,23 +337,48 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
             <h1 className="text-3xl font-hand font-bold text-loto-red mb-2">Phòng Chờ</h1>
             <p className="text-gray-500 mb-2 text-sm">Quét mã để vào ngay</p>
             
-            {/* LAN IP Input */}
-            {isLocalhost && (
-                <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <p className="text-xs text-blue-800 font-bold mb-1 text-left">
-                        ℹ️ Để điện thoại vào được (cùng Wifi):
-                    </p>
-                    <div className="text-xs text-gray-600 text-left mb-2">
-                        1. Xem cửa sổ đen (Terminal) dòng <span className="font-mono bg-gray-200 px-1">Network: http://xxx...</span>
-                        <br/>2. Nhập số đó vào dưới đây để tạo QR đúng:
+            {/* DEPLOYMENT GUIDE MODAL */}
+            {showDeployGuide && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+                    <div className="bg-white p-6 rounded-2xl max-w-md w-full text-left relative">
+                        <button onClick={() => setShowDeployGuide(false)} className="absolute top-2 right-2 text-gray-400 hover:text-black font-bold text-xl">✕</button>
+                        <h3 className="text-xl font-bold text-blue-700 mb-4">🚀 Cách chơi Online 100% không lỗi</h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                            Chạy trên máy tính (localhost) rồi Tunnel thường bị lỗi khi dùng 4G hoặc khác Wifi.
+                            Để ổn định nhất, bạn hãy đưa game lên mạng thật bằng <b>Vercel</b> (Miễn phí vĩnh viễn).
+                        </p>
+                        <ol className="list-decimal list-inside text-sm space-y-2 mb-4">
+                            <li>Vào trang <a href="https://github.com/new" target="_blank" className="text-blue-600 underline font-bold">GitHub</a> và tạo 1 kho (Repo) mới.</li>
+                            <li>Tải code này lên GitHub (git push).</li>
+                            <li>Vào trang <a href="https://vercel.com/new" target="_blank" className="text-blue-600 underline font-bold">Vercel.com</a>, đăng nhập bằng GitHub.</li>
+                            <li>Chọn Repo bạn vừa tạo, bấm <b>Deploy</b>.</li>
+                            <li>Chờ 1 phút, Vercel sẽ cho bạn 1 cái Link (vd: <i>loto-vui.vercel.app</i>).</li>
+                        </ol>
+                        <p className="text-center font-bold text-green-600">Dùng Link đó thì 4G hay Wifi nào cũng chơi được!</p>
                     </div>
-                    <input 
-                        type="text" 
-                        placeholder="VD: 192.168.1.15" 
-                        className="w-full border border-blue-300 rounded px-2 py-1 text-center font-bold text-blue-900"
-                        value={lanIp}
-                        onChange={(e) => setLanIp(e.target.value)}
-                    />
+                </div>
+            )}
+
+            {/* Warning if Localhost */}
+            {isLocalhost && (
+                <div className="mb-4">
+                     <button 
+                        onClick={() => setShowDeployGuide(true)}
+                        className="w-full bg-blue-100 text-blue-700 font-bold py-2 rounded-lg border border-blue-300 animate-pulse hover:bg-blue-200"
+                     >
+                        🌐 Bấm xem cách chơi qua 4G/Internet
+                     </button>
+                     
+                     <div className="mt-2 p-2 bg-gray-50 rounded border text-xs text-gray-500 text-left">
+                        Nếu chỉ chơi cùng Wifi, hãy nhập IP máy bạn vào đây để tạo QR:
+                        <input 
+                            type="text" 
+                            placeholder="VD: 192.168.1.15" 
+                            className="w-full mt-1 border rounded px-2 py-1 text-center font-bold text-gray-800"
+                            value={lanIp}
+                            onChange={(e) => setLanIp(e.target.value)}
+                        />
+                     </div>
                 </div>
             )}
 
@@ -365,7 +391,7 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
                  />
                  {isLocalhost && !lanIp && (
                      <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
-                         <span className="text-sm font-bold text-red-600 bg-white px-2 py-1 border border-red-200 shadow-sm rounded">Nhập IP Wifi ở trên ☝️</span>
+                         <span className="text-sm font-bold text-red-600 bg-white px-2 py-1 border border-red-200 shadow-sm rounded">Nhập IP hoặc Deploy ☝️</span>
                      </div>
                  )}
             </div>

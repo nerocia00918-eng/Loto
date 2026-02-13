@@ -1,10 +1,13 @@
 import { PeerMessage } from '../types';
 import { Peer } from 'peerjs';
 
-// Minimal STUN List for Mobile Stability
+// Robust STUN List for better 4G/Cross-network connectivity
 const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' }
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:global.stun.twilio.com:3478' },
+  { urls: 'stun:stun.services.mozilla.com' },
 ];
 
 const CONNECTION_CONFIG = {
@@ -45,8 +48,7 @@ export class PeerService {
       debug: 1, 
       config: {
         iceServers: iceServers,
-        // CRITICAL FOR MOBILE: Reduce this to 1. 
-        iceCandidatePoolSize: 1, 
+        iceCandidatePoolSize: 10, // Increased for faster candidates gathering on 4G
       }
     };
   }
@@ -145,13 +147,13 @@ export class PeerService {
           return;
       }
 
-      // Hard timeout for connection attempt (10s)
+      // Extended timeout for 4G/LTE (15s)
       connectTimeout = setTimeout(() => {
           if (!hasConnected) {
                conn.close();
-               onError("Kết nối quá lâu (Timeout). Hãy thử lại hoặc dùng Wifi khác.");
+               onError("Kết nối quá lâu (Timeout). Mạng 4G/Wifi quá yếu hoặc bị chặn.");
           }
-      }, 10000);
+      }, 15000);
 
       conn.on('open', () => {
         clearTimeout(connectTimeout);
@@ -187,7 +189,7 @@ export class PeerService {
        if (err.type === 'peer-unavailable') {
            onError(`Không tìm thấy phòng "${hostCode}". Host có đang mở không?`);
        } else if (err.type === 'network' || err.type === 'disconnected' || err.type === 'webrtc') {
-           onError('Lỗi mạng/Tường lửa (WebRTC). Hãy dùng 4G hoặc Wifi khác.');
+           onError('Lỗi mạng (WebRTC). Hãy thử chuyển từ 4G sang Wifi hoặc ngược lại.');
        } else if (err.type === 'browser-incompatible') {
            onError('Trình duyệt không hỗ trợ. Hãy dùng Chrome hoặc Safari mới nhất.');
        } else {
