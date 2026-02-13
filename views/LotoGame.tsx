@@ -29,6 +29,7 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
   const [roomId, setRoomId] = useState<string>('');
   const [connectedPlayers, setConnectedPlayers] = useState<PlayerInfo[]>([]);
   const [pendingClaim, setPendingClaim] = useState<ClaimData | null>(null);
+  const [lanIp, setLanIp] = useState(''); // New state for LAN IP input
 
   // Player Specific
   const [joinRoomId, setJoinRoomId] = useState(initialRoomId);
@@ -44,7 +45,6 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
 
   // Localhost Detection
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const isHttp = typeof window !== 'undefined' && window.location.protocol === 'http:' && !isLocalhost;
 
   useEffect(() => {
      if (initialRoomId) setJoinRoomId(initialRoomId);
@@ -77,7 +77,13 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
   };
 
   const getShareUrl = () => {
-      const baseUrl = window.location.origin + window.location.pathname;
+      // Determine base URL: Use LAN IP if provided, otherwise window.origin
+      let baseUrl = window.location.origin;
+      if (lanIp && lanIp.includes('.')) {
+          baseUrl = `http://${lanIp}:5173`;
+      }
+      
+      const fullUrl = baseUrl + window.location.pathname;
       const params = new URLSearchParams();
       params.set('game', 'loto');
       params.set('room', roomId);
@@ -89,7 +95,7 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
           if (c.turnUser) params.set('t_u', c.turnUser);
           if (c.turnPass) params.set('t_p', c.turnPass);
       }
-      return `${baseUrl}?${params.toString()}`;
+      return `${fullUrl}?${params.toString()}`;
   };
 
   const handleShareLink = async () => {
@@ -182,23 +188,21 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
 
   // --- PLAYER LOGIC ---
   const startPlayer = () => {
-    // Smart Link Handling
     let finalRoomId = joinRoomId.trim();
     
+    // Smart Link Handling: Check if it's a full URL
     if (finalRoomId.includes('http')) {
         try {
             const url = new URL(finalRoomId);
             const r = url.searchParams.get('room');
             if (r) {
                 finalRoomId = r;
-                // Extract TURN config if present in the pasted link
                 const pTUrl = url.searchParams.get('t_url');
                 const pTUser = url.searchParams.get('t_u');
                 const pTPass = url.searchParams.get('t_p');
                 if (pTUrl && pTUser && pTPass) {
                      const newConfig = { turnUrl: pTUrl, turnUser: pTUser, turnPass: pTPass };
                      localStorage.setItem('loto_turn_config', JSON.stringify(newConfig));
-                     console.log("TURN config extracted from pasted link");
                 }
             }
         } catch (e) {
@@ -208,7 +212,6 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
 
     if (!myPlayerName.trim() || !finalRoomId) return alert("Nhập tên và mã phòng!");
     
-    // Ensure cleanup before retrying
     peerService.destroy();
     setIsJoining(true);
 
@@ -219,9 +222,7 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
         setIsJoining(false);
         peerService.sendToHost({ type: 'JOIN', name: myPlayerName });
       },
-      (data) => {
-        handlePlayerData(data);
-      },
+      (data) => handlePlayerData(data),
       (err) => {
         setIsJoining(false);
         alert(err);
@@ -285,14 +286,6 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
         <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center bg-loto-cream font-sans relative overflow-hidden">
             <BgPattern />
             
-            {/* Warning for HTTP on Mobile */}
-            {isHttp && (
-               <div className="absolute top-0 left-0 w-full bg-red-600 text-white p-2 text-xs font-bold z-[60]">
-                  ⚠️ CẢNH BÁO: Link HTTP không hỗ trợ iOS/Android.
-                  <br/>Vui lòng dùng Link HTTPS (xem hướng dẫn ở máy Host) để chơi.
-               </div>
-            )}
-
             <button onClick={onBackToMenu} className="absolute top-4 left-4 text-gray-500 hover:text-red-500 font-bold z-50">
                &larr; Menu
             </button>
@@ -341,36 +334,41 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
       <div className="flex flex-col min-h-screen items-center justify-center p-6 bg-loto-cream font-sans">
          <div className="bg-white p-8 rounded-3xl shadow-xl max-w-lg w-full border-4 border-loto-red text-center relative">
             <h1 className="text-3xl font-hand font-bold text-loto-red mb-2">Phòng Chờ</h1>
-            <p className="text-gray-500 mb-4 text-sm">Quét mã để vào ngay không cần cài đặt</p>
+            <p className="text-gray-500 mb-2 text-sm">Quét mã để vào ngay</p>
             
-            {/* QR CODE - Using external API for simplicity */}
+            {/* LAN IP Input */}
+            {isLocalhost && (
+                <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs text-blue-800 font-bold mb-1 text-left">
+                        ℹ️ Để điện thoại vào được (cùng Wifi):
+                    </p>
+                    <div className="text-xs text-gray-600 text-left mb-2">
+                        1. Xem cửa sổ đen (Terminal) dòng <span className="font-mono bg-gray-200 px-1">Network: http://xxx...</span>
+                        <br/>2. Nhập số đó vào dưới đây để tạo QR đúng:
+                    </div>
+                    <input 
+                        type="text" 
+                        placeholder="VD: 192.168.1.15" 
+                        className="w-full border border-blue-300 rounded px-2 py-1 text-center font-bold text-blue-900"
+                        value={lanIp}
+                        onChange={(e) => setLanIp(e.target.value)}
+                    />
+                </div>
+            )}
+
+            {/* QR CODE */}
             <div className="flex justify-center mb-4 relative">
                  <img 
                     src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(getShareUrl())}`} 
                     alt="QR Code Invite"
-                    className={`border-2 border-gray-200 rounded-lg shadow-sm ${isLocalhost ? 'opacity-25' : ''}`}
+                    className="border-2 border-gray-200 rounded-lg shadow-sm"
                  />
-                 {isLocalhost && (
-                     <div className="absolute inset-0 flex items-center justify-center">
-                         <span className="text-4xl">⚠️</span>
+                 {isLocalhost && !lanIp && (
+                     <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
+                         <span className="text-sm font-bold text-red-600 bg-white px-2 py-1 border border-red-200 shadow-sm rounded">Nhập IP Wifi ở trên ☝️</span>
                      </div>
                  )}
             </div>
-
-            {isLocalhost && (
-                <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded mb-4 text-xs font-bold text-left">
-                    ⚠️ LƯU Ý QUAN TRỌNG:
-                    <br/>Lỗi 502 nghĩa là Server trung gian bị quá tải hoặc bạn tắt game.
-                    <br/>
-                    <br/>👉 <b>Giải pháp ỔN ĐỊNH NHẤT (localhost.run):</b>
-                    <br/>1. Giữ nguyên cửa sổ chạy game (npm run dev).
-                    <br/>2. Mở cửa sổ CMD/Terminal mới.
-                    <br/>3. Copy lệnh này và Enter:
-                    <br/><code className="bg-white px-1 border select-all cursor-pointer text-blue-600 block mt-1 p-1 text-center font-mono">ssh -R 80:localhost:5173 nokey@localhost.run</code>
-                    <br/>4. Chờ nó hiện dòng chữ có đuôi <b>.lhr.life</b> hoặc <b>.localhost.run</b>
-                    <br/>5. Vào link đó là chơi được ngay!
-                </div>
-            )}
 
             <div className="bg-gray-100 p-4 rounded-xl mb-4 flex flex-col gap-1">
                 <span className="text-xs text-gray-500 uppercase tracking-widest">Mã Phòng</span>

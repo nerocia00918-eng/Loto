@@ -17,6 +17,7 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
   // Host
   const [roomId, setRoomId] = useState<string>('');
   const [isAutoMode, setIsAutoMode] = useState(false);
+  const [lanIp, setLanIp] = useState(''); // LAN IP input for Host
   
   // Common
   const [myName, setMyName] = useState('');
@@ -94,7 +95,13 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
   };
 
   const getShareUrl = () => {
-      const baseUrl = window.location.origin + window.location.pathname;
+      // Use LAN IP for QR if available
+      let baseUrl = window.location.origin;
+      if (lanIp && lanIp.includes('.')) {
+          baseUrl = `http://${lanIp}:5173`;
+      }
+
+      const fullUrl = baseUrl + window.location.pathname;
       const params = new URLSearchParams();
       params.set('game', 'card');
       params.set('room', roomId);
@@ -106,7 +113,7 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
           if (c.turnUser) params.set('t_u', c.turnUser);
           if (c.turnPass) params.set('t_p', c.turnPass);
       }
-      return `${baseUrl}?${params.toString()}`;
+      return `${fullUrl}?${params.toString()}`;
   };
 
   const handleShareLink = async () => {
@@ -489,28 +496,39 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
                  <h2 className="text-3xl font-black text-yellow-400 mb-2">PHÒNG CHỜ</h2>
                  <p className="text-gray-300 mb-4">Quét QR hoặc nhập mã để vào</p>
                  
+                 {/* LAN IP Input */}
+                 {isLocalhost && (
+                    <div className="mb-4 p-3 bg-black/30 rounded-lg border border-green-500/50">
+                        <p className="text-xs text-green-300 font-bold mb-1 text-left">
+                            ℹ️ Cách để điện thoại vào được (cùng Wifi):
+                        </p>
+                        <div className="text-xs text-gray-300 text-left mb-2">
+                            1. Xem cửa sổ đen (Terminal) dòng <span className="font-mono bg-black/50 px-1 border border-white/20">Network: http://xxx...</span>
+                            <br/>2. Nhập số đó vào đây:
+                        </div>
+                        <input 
+                            type="text" 
+                            placeholder="VD: 192.168.1.15" 
+                            className="w-full bg-black/50 border border-green-500 rounded px-2 py-1 text-center font-bold text-green-300 placeholder-gray-600"
+                            value={lanIp}
+                            onChange={(e) => setLanIp(e.target.value)}
+                        />
+                    </div>
+                )}
+
                  {/* QR Code */}
                  <div className="flex justify-center mb-4 relative">
                      <img 
                         src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(getShareUrl())}`} 
                         alt="QR Code"
-                        className={`border-4 border-white rounded-lg shadow-md ${isLocalhost ? 'opacity-25' : ''}`}
+                        className={`border-4 border-white rounded-lg shadow-md`}
                      />
-                     {isLocalhost && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                             <span className="text-4xl">⚠️</span>
+                     {isLocalhost && !lanIp && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-[1px]">
+                             <span className="text-sm font-bold text-yellow-500 bg-black/50 px-2 py-1 border border-yellow-500 rounded">Nhập IP Wifi ở trên ☝️</span>
                         </div>
                      )}
                  </div>
-
-                 {isLocalhost && (
-                    <div className="bg-red-500/20 border border-red-500 text-white p-2 rounded mb-4 text-xs font-bold text-left">
-                        ⚠️ Lỗi 502/Connection: 
-                        <br/>1. Đảm bảo game (npm run dev) đang chạy.
-                        <br/>2. Dùng lệnh này thay cho Serveo:
-                        <br/><code className="bg-black/50 px-1 border select-all cursor-pointer text-yellow-300 block mt-1 p-1 text-center">ssh -R 80:localhost:5173 nokey@localhost.run</code>
-                    </div>
-                )}
 
                  <div className="bg-green-900 p-4 rounded-xl mb-4 border border-green-700">
                      <span className="text-xs text-gray-400 uppercase font-bold">Mã Phòng</span>
