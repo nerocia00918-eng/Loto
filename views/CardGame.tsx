@@ -34,6 +34,9 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
   const autoTimeoutRef = useRef<number | null>(null);
   const winnerIdRef = useRef<string | null>(null);
 
+  // Localhost Detection
+  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
   useEffect(() => { playersRef.current = players; }, [players]);
   useEffect(() => { gameStatusRef.current = gameStatus; }, [gameStatus]);
   useEffect(() => { winnerIdRef.current = winnerId; }, [winnerId]);
@@ -90,7 +93,7 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
     );
   };
 
-  const handleShareLink = async () => {
+  const getShareUrl = () => {
       const baseUrl = window.location.origin + window.location.pathname;
       const params = new URLSearchParams();
       params.set('game', 'card');
@@ -103,8 +106,11 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
           if (c.turnUser) params.set('t_u', c.turnUser);
           if (c.turnPass) params.set('t_p', c.turnPass);
       }
+      return `${baseUrl}?${params.toString()}`;
+  };
 
-      const shareUrl = `${baseUrl}?${params.toString()}`;
+  const handleShareLink = async () => {
+      const shareUrl = getShareUrl();
 
       if (navigator.share) {
           try {
@@ -298,11 +304,30 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
   
   // --- PLAYER LOGIC ---
   const startPlayer = () => {
-    if(!myName || !joinRoomId) return alert("Nhập đủ thông tin!");
+    // Smart Input Logic
+    let finalRoomId = joinRoomId.trim();
+    if (finalRoomId.includes('http')) {
+        try {
+            const url = new URL(finalRoomId);
+            const r = url.searchParams.get('room');
+            if (r) {
+                finalRoomId = r;
+                 const pTUrl = url.searchParams.get('t_url');
+                 const pTUser = url.searchParams.get('t_u');
+                 const pTPass = url.searchParams.get('t_p');
+                 if (pTUrl && pTUser && pTPass) {
+                     const newConfig = { turnUrl: pTUrl, turnUser: pTUser, turnPass: pTPass };
+                     localStorage.setItem('loto_turn_config', JSON.stringify(newConfig));
+                 }
+            }
+        } catch (e) {}
+    }
+
+    if(!myName || !finalRoomId) return alert("Nhập đủ thông tin!");
     setIsJoining(true);
     
     peerService.initPlayer(
-        joinRoomId.trim(),
+        finalRoomId,
         () => {
             setRole(GameRole.PLAYER);
             setIsJoining(false);
@@ -440,7 +465,7 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
                  />
                  <input 
                     className="w-full p-2 rounded text-black mb-4" 
-                    placeholder="Mã Phòng" 
+                    placeholder="Mã Phòng (hoặc dán Link)" 
                     value={joinRoomId} 
                     onChange={e => setJoinRoomId(e.target.value)}
                  />
@@ -460,10 +485,32 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
   if (role === GameRole.HOST && gameStatus === GameStatus.LOBBY) {
       return (
          <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-green-900 text-white font-sans">
-            <div className="bg-green-800 border-4 border-yellow-500 rounded-2xl p-8 max-w-lg w-full text-center shadow-2xl">
+            <div className="bg-green-800 border-4 border-yellow-500 rounded-2xl p-8 max-w-lg w-full text-center shadow-2xl relative">
                  <h2 className="text-3xl font-black text-yellow-400 mb-2">PHÒNG CHỜ</h2>
-                 <p className="text-gray-300 mb-4">Chia sẻ mã hoặc link để mời bạn bè</p>
+                 <p className="text-gray-300 mb-4">Quét QR hoặc nhập mã để vào</p>
                  
+                 {/* QR Code */}
+                 <div className="flex justify-center mb-4 relative">
+                     <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(getShareUrl())}`} 
+                        alt="QR Code"
+                        className={`border-4 border-white rounded-lg shadow-md ${isLocalhost ? 'opacity-25' : ''}`}
+                     />
+                     {isLocalhost && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                             <span className="text-4xl">⚠️</span>
+                        </div>
+                     )}
+                 </div>
+
+                 {isLocalhost && (
+                    <div className="bg-red-500/20 border border-red-500 text-white p-2 rounded mb-4 text-xs font-bold">
+                        ⚠️ Bạn đang chạy Localhost. Điện thoại sẽ không quét được!
+                        <br/>👉 Hãy nhìn vào Terminal (cửa sổ đen) chạy code, tìm dòng "Network" (ví dụ: http://192.168.1.5:5173).
+                        <br/>👉 Truy cập vào địa chỉ IP đó trên máy tính này TRƯỚC, rồi mới đưa điện thoại quét mã mới.
+                    </div>
+                )}
+
                  <div className="bg-green-900 p-4 rounded-xl mb-4 border border-green-700">
                      <span className="text-xs text-gray-400 uppercase font-bold">Mã Phòng</span>
                      <div className="text-5xl font-black text-white">{roomId}</div>
@@ -473,7 +520,7 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
                     onClick={handleShareLink} 
                     className="mb-6 w-full py-3 bg-yellow-500 text-black font-bold rounded-lg hover:bg-yellow-400 flex items-center justify-center gap-2 shadow-lg"
                  >
-                    📤 Gửi Link Mời 1 Chạm
+                    📤 Gửi Link Mời
                  </button>
 
                  <div className="mb-6 bg-black/20 p-4 rounded-xl">

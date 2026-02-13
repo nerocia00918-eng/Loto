@@ -1,7 +1,7 @@
 import { PeerMessage } from '../types';
 import { Peer } from 'peerjs';
 
-// Default Public STUN Servers (Free, but sometimes blocked by symmetric NAT/4G)
+// Expanded Public STUN List to maximize direct connection chances
 const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -10,6 +10,11 @@ const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun4.l.google.com:19302' },
   { urls: 'stun:stun.ekiga.net' },
   { urls: 'stun:stun.ideasip.com' },
+  { urls: 'stun:stun.schlund.de' },
+  { urls: 'stun:stun.voiparound.com' },
+  { urls: 'stun:stun.voipbuster.com' },
+  { urls: 'stun:stun.voipstunt.com' },
+  { urls: 'stun:stun.voxgratia.org' }
 ];
 
 const CONNECTION_CONFIG = {
@@ -22,6 +27,7 @@ export class PeerService {
   private connections: any[] = [];
   private hostConnection: any = null;
   public myId: string = '';
+  private heartbeatInterval: any = null;
 
   constructor() {}
 
@@ -29,7 +35,6 @@ export class PeerService {
   private getPeerConfig() {
     let iceServers: any[] = [...DEFAULT_ICE_SERVERS];
     
-    // Load custom TURN from LocalStorage
     try {
         const stored = localStorage.getItem('loto_turn_config');
         if (stored) {
@@ -48,13 +53,35 @@ export class PeerService {
     }
 
     return {
-      debug: 1,
-      pingInterval: 5000,
+      debug: 1, // 0: None, 1: Errors, 2: Warnings, 3: All
       config: {
         iceServers: iceServers,
         iceCandidatePoolSize: 10,
       }
     };
+  }
+
+  // --- HEARTBEAT SYSTEM (CRITICAL FOR MOBILE) ---
+  private startHeartbeat() {
+      if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+      
+      // Ping every 3 seconds to keep NAT open on 4G/Mobile
+      this.heartbeatInterval = setInterval(() => {
+          const pingMsg = { type: 'PING' };
+          
+          if (this.hostConnection && this.hostConnection.open) {
+              this.hostConnection.send(pingMsg);
+          }
+          
+          this.connections.forEach(conn => {
+              if (conn.open) conn.send(pingMsg);
+          });
+      }, 3000); 
+  }
+
+  private stopHeartbeat() {
+      if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
   }
 
   // Initialize as Host
@@ -66,9 +93,7 @@ export class PeerService {
     const randomId = Math.floor(1000 + Math.random() * 9000).toString();
     const fullId = `loto-${randomId}`;
 
-    if (this.peer) {
-        this.peer.destroy();
-    }
+    if (this.peer) this.peer.destroy();
 
     try {
         // @ts-ignore
@@ -81,49 +106,43 @@ export class PeerService {
 
     this.peer.on('open', (id: string) => {
       this.myId = id;
-      console.log('Host initialized with ID: ' + id);
+      console.log('Host initialized: ' + id);
+      this.startHeartbeat();
       onOpen(randomId);
     });
 
     this.peer.on('connection', (conn: any) => {
-      console.log('New connection received');
       this.connections.push(conn);
       
-      conn.on('data', (data: PeerMessage) => {
+      conn.on('data', (data: any) => {
+        if (data.type === 'PING') return; // Ignore pings
         onData(data, conn);
       });
       
       conn.on('close', () => {
-        console.log("Connection closed");
         this.connections = this.connections.filter(c => c !== conn);
       });
       
-      conn.on('error', (err: any) => {
-          console.error("Connection error:", err);
-      });
+      conn.on('error', (err: any) => console.error("Conn Error:", err));
     });
 
     this.peer.on('error', (err: any) => {
-      console.error('Host Peer Error:', err);
-      if (err.type === 'unavailable-id') {
-        if (retryCount < 5) {
+      console.error('Host Error:', err);
+      if (err.type === 'unavailable-id' && retryCount < 5) {
             setTimeout(() => this.createHostPeer(onOpen, onData, retryCount + 1), 500);
-        }
       }
     });
   }
 
   // Initialize as Player
   initPlayer(hostCode: string, onOpen: () => void, onData: (data: PeerMessage) => void, onError: (err: string) => void) {
-    if (this.peer) {
-        this.peer.destroy();
-    }
+    if (this.peer) this.peer.destroy();
     
     try {
         // @ts-ignore
         this.peer = new Peer(undefined, this.getPeerConfig());
     } catch (e) {
-        onError("Không thể khởi tạo kết nối mạng.");
+        onError("Lỗi khởi tạo mạng.");
         return;
     }
 
@@ -134,22 +153,18 @@ export class PeerService {
       this.myId = id;
       const hostId = `loto-${hostCode}`;
       
-      console.log(`My ID: ${id}. Connecting to Host: ${hostId}`);
-
-      // Attempt connection
       const conn = this.peer!.connect(hostId, CONNECTION_CONFIG);
 
       if (!conn) {
-          onError("Lỗi tạo kết nối.");
+          onError("Lỗi kết nối.");
           return;
       }
 
-      // Set a generous timeout for mobile networks (15s)
+      // 15s Timeout for Mobile
       connectTimeout = setTimeout(() => {
           if (!connectionMade) {
-               console.warn("Connection timed out");
                conn.close();
-               onError("Kết nối quá lâu (Timeout). Hãy thử cấu hình TURN Server trong Cài đặt.");
+               onError("Kết nối quá lâu. Hãy dùng QR Code hoặc Link mời (có chứa cấu hình mạng).");
           }
       }, 15000);
 
@@ -157,34 +172,30 @@ export class PeerService {
         clearTimeout(connectTimeout);
         connectionMade = true;
         this.hostConnection = conn;
-        console.log("Connected to Host!");
+        this.startHeartbeat();
+        console.log("Connected to Host");
         onOpen();
       });
 
-      conn.on('data', (data: PeerMessage) => {
+      conn.on('data', (data: any) => {
+        if (data.type === 'PING') return;
         onData(data);
       });
 
       conn.on('close', () => {
-          if (connectionMade) onError("Mất kết nối với chủ phòng.");
-      });
-      
-      conn.on('error', (err: any) => {
-          console.error("Connection level error:", err);
+          if (connectionMade) onError("Mất kết nối với Host.");
       });
     });
 
     this.peer.on('error', (err: any) => {
-       console.error('Player Peer Error', err);
+       console.error('Player Error', err);
        clearTimeout(connectTimeout);
        if (err.type === 'peer-unavailable') {
-           onError(`Không tìm thấy phòng "${hostCode}". Có thể Host đã thoát hoặc bạn nhập sai mã.`);
-       } else if (err.type === 'disconnected') {
-           onError('Mất kết nối mạng.');
-       } else if (err.type === 'network') {
-           onError('Tường lửa chặn kết nối (NAT). Hãy cấu hình TURN Server trong menu chính.');
+           onError(`Không tìm thấy phòng "${hostCode}".`);
+       } else if (err.type === 'network' || err.type === 'disconnected') {
+           onError('Lỗi mạng/Tường lửa. Hãy dùng Link/QR Code của Host để tự động cấu hình.');
        } else {
-           onError(`Lỗi kết nối (${err.type}).`);
+           onError(`Lỗi: ${err.type}`);
        }
     });
   }
@@ -192,29 +203,22 @@ export class PeerService {
   sendToHost(data: PeerMessage) {
     if (this.hostConnection && this.hostConnection.open) {
       this.hostConnection.send(data);
-    } else {
-        console.warn("Cannot send to host: Connection not open");
     }
   }
 
   sendToPlayer(peerId: string, data: PeerMessage) {
     const conn = this.connections.find(c => c.peer === peerId);
-    if (conn && conn.open) {
-      conn.send(data);
-    } else {
-        console.warn(`Could not send to player ${peerId}, connection not found or closed.`);
-    }
+    if (conn && conn.open) conn.send(data);
   }
 
   broadcast(data: PeerMessage) {
     this.connections.forEach(conn => {
-      if (conn.open) {
-        conn.send(data);
-      }
+      if (conn.open) conn.send(data);
     });
   }
 
   destroy() {
+    this.stopHeartbeat();
     if (this.peer) {
       this.peer.destroy();
       this.peer = null;

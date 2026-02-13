@@ -42,6 +42,9 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [winnerName, setWinnerName] = useState<string | null>(null);
 
+  // Localhost Detection
+  const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
   useEffect(() => {
      if (initialRoomId) setJoinRoomId(initialRoomId);
   }, [initialRoomId]);
@@ -72,14 +75,12 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
     );
   };
 
-  const handleShareLink = async () => {
-      // Build Invite Link
+  const getShareUrl = () => {
       const baseUrl = window.location.origin + window.location.pathname;
       const params = new URLSearchParams();
       params.set('game', 'loto');
       params.set('room', roomId);
       
-      // Include TURN config if exists in localStorage (to help friends connect easily)
       const stored = localStorage.getItem('loto_turn_config');
       if (stored) {
           const c = JSON.parse(stored);
@@ -87,9 +88,11 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
           if (c.turnUser) params.set('t_u', c.turnUser);
           if (c.turnPass) params.set('t_p', c.turnPass);
       }
+      return `${baseUrl}?${params.toString()}`;
+  };
 
-      const shareUrl = `${baseUrl}?${params.toString()}`;
-
+  const handleShareLink = async () => {
+      const shareUrl = getShareUrl();
       if (navigator.share) {
           try {
               await navigator.share({
@@ -178,11 +181,35 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
 
   // --- PLAYER LOGIC ---
   const startPlayer = () => {
-    if (!myPlayerName.trim() || !joinRoomId.trim()) return alert("Nhập tên và mã phòng!");
+    // Smart Link Handling: Check if user pasted a full URL into the Room ID field
+    let finalRoomId = joinRoomId.trim();
+    
+    if (finalRoomId.includes('http')) {
+        try {
+            const url = new URL(finalRoomId);
+            const r = url.searchParams.get('room');
+            if (r) {
+                finalRoomId = r;
+                // Extract TURN config if present in the pasted link
+                const pTUrl = url.searchParams.get('t_url');
+                const pTUser = url.searchParams.get('t_u');
+                const pTPass = url.searchParams.get('t_p');
+                if (pTUrl && pTUser && pTPass) {
+                     const newConfig = { turnUrl: pTUrl, turnUser: pTUser, turnPass: pTPass };
+                     localStorage.setItem('loto_turn_config', JSON.stringify(newConfig));
+                     console.log("TURN config extracted from pasted link");
+                }
+            }
+        } catch (e) {
+            console.error("Invalid link pasted");
+        }
+    }
+
+    if (!myPlayerName.trim() || !finalRoomId) return alert("Nhập tên và mã phòng!");
     setIsJoining(true);
 
     peerService.initPlayer(
-      joinRoomId.trim(),
+      finalRoomId,
       () => {
         setRole(GameRole.PLAYER);
         setIsJoining(false);
@@ -273,7 +300,7 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
               <div className="flex-1 bg-white border-4 border-loto-yellow rounded-3xl p-6 shadow-xl flex flex-col items-center">
                  <div className="text-5xl mb-4">🎫</div>
                  <h2 className="text-2xl font-bold mb-2 text-yellow-600">Vào Phòng</h2>
-                 <p className="text-gray-500 text-sm mb-4">Nhập mã phòng từ bạn bè.</p>
+                 <p className="text-gray-500 text-sm mb-4">Nhập mã hoặc dán Link mời.</p>
                  <div className="w-full space-y-3">
                     <input 
                         type="text" placeholder="Tên của bạn" value={myPlayerName}
@@ -281,7 +308,7 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
                         className="w-full border-2 border-gray-300 rounded-lg p-2 focus:border-loto-yellow outline-none"
                     />
                     <input 
-                        type="number" placeholder="Mã Phòng (VD: 1234)" value={joinRoomId}
+                        type="text" placeholder="Mã Phòng (hoặc dán Link)" value={joinRoomId}
                         onChange={e => setJoinRoomId(e.target.value)}
                         className="w-full border-2 border-gray-300 rounded-lg p-2 focus:border-loto-yellow outline-none"
                     />
@@ -298,13 +325,35 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
   // --- LOBBY (HOST) ---
   if (role === GameRole.HOST && gameStatus === GameStatus.LOBBY) {
     return (
-      <div className="flex flex-col h-screen items-center justify-center p-6 bg-loto-cream font-sans">
-         <div className="bg-white p-8 rounded-3xl shadow-xl max-w-lg w-full border-4 border-loto-red text-center">
+      <div className="flex flex-col min-h-screen items-center justify-center p-6 bg-loto-cream font-sans">
+         <div className="bg-white p-8 rounded-3xl shadow-xl max-w-lg w-full border-4 border-loto-red text-center relative">
             <h1 className="text-3xl font-hand font-bold text-loto-red mb-2">Phòng Chờ</h1>
-            <p className="text-gray-500 mb-6">Mời bạn bè nhập mã bên dưới để vào phòng</p>
+            <p className="text-gray-500 mb-4 text-sm">Quét mã để vào ngay không cần cài đặt</p>
             
-            <div className="bg-gray-100 p-4 rounded-xl mb-4">
-                <span className="block text-xs text-gray-500 uppercase tracking-widest">Mã Phòng</span>
+            {/* QR CODE - Using external API for simplicity */}
+            <div className="flex justify-center mb-4 relative">
+                 <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(getShareUrl())}`} 
+                    alt="QR Code Invite"
+                    className={`border-2 border-gray-200 rounded-lg shadow-sm ${isLocalhost ? 'opacity-25' : ''}`}
+                 />
+                 {isLocalhost && (
+                     <div className="absolute inset-0 flex items-center justify-center">
+                         <span className="text-4xl">⚠️</span>
+                     </div>
+                 )}
+            </div>
+
+            {isLocalhost && (
+                <div className="bg-red-50 border border-red-200 text-red-700 p-2 rounded mb-4 text-xs font-bold">
+                    ⚠️ Bạn đang chạy Localhost. Điện thoại sẽ không quét được!
+                    <br/>👉 Hãy nhìn vào Terminal (cửa sổ đen) chạy code, tìm dòng "Network" (ví dụ: http://192.168.1.5:5173).
+                    <br/>👉 Truy cập vào địa chỉ IP đó trên máy tính này TRƯỚC, rồi mới đưa điện thoại quét mã mới.
+                </div>
+            )}
+
+            <div className="bg-gray-100 p-4 rounded-xl mb-4 flex flex-col gap-1">
+                <span className="text-xs text-gray-500 uppercase tracking-widest">Mã Phòng</span>
                 <span className="text-5xl font-black text-blue-600 tracking-wider">{roomId || '...'}</span>
             </div>
 
@@ -312,14 +361,14 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
                 onClick={handleShareLink} 
                 className="mb-6 w-full py-2 bg-blue-50 text-blue-600 font-bold rounded-lg hover:bg-blue-100 flex items-center justify-center gap-2"
             >
-                📤 Gửi Link Mời (Zalo/FB)
+                📤 Gửi Link (Zalo/Messenger)
             </button>
 
             <div className="mb-6">
-                <h3 className="text-left text-sm font-bold text-gray-400 uppercase mb-2">Người chơi đã vào ({connectedPlayers.length})</h3>
+                <h3 className="text-left text-sm font-bold text-gray-400 uppercase mb-2">Người chơi ({connectedPlayers.length})</h3>
                 <div className="bg-gray-50 rounded-xl p-2 max-h-40 overflow-y-auto border border-gray-200">
                     {connectedPlayers.length === 0 ? (
-                        <p className="text-gray-400 italic text-sm py-4">Đang chờ người chơi...</p>
+                        <p className="text-gray-400 italic text-sm py-4">Chờ người quét mã hoặc nhập ID...</p>
                     ) : (
                         connectedPlayers.map((p, i) => (
                             <div key={i} className="flex items-center gap-2 p-2 border-b last:border-0">
