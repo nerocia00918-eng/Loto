@@ -44,6 +44,7 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
 
   // Localhost Detection
   const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const isHttp = typeof window !== 'undefined' && window.location.protocol === 'http:' && !isLocalhost;
 
   useEffect(() => {
      if (initialRoomId) setJoinRoomId(initialRoomId);
@@ -181,7 +182,7 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
 
   // --- PLAYER LOGIC ---
   const startPlayer = () => {
-    // Smart Link Handling: Check if user pasted a full URL into the Room ID field
+    // Smart Link Handling
     let finalRoomId = joinRoomId.trim();
     
     if (finalRoomId.includes('http')) {
@@ -206,6 +207,9 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
     }
 
     if (!myPlayerName.trim() || !finalRoomId) return alert("Nhập tên và mã phòng!");
+    
+    // Ensure cleanup before retrying
+    peerService.destroy();
     setIsJoining(true);
 
     peerService.initPlayer(
@@ -280,6 +284,15 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
     return (
         <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center bg-loto-cream font-sans relative overflow-hidden">
             <BgPattern />
+            
+            {/* Warning for HTTP on Mobile */}
+            {isHttp && (
+               <div className="absolute top-0 left-0 w-full bg-red-600 text-white p-2 text-xs font-bold z-[60]">
+                  ⚠️ CẢNH BÁO: Link HTTP không hỗ trợ iOS/Android.
+                  <br/>Vui lòng dùng Link HTTPS (xem hướng dẫn ở máy Host) để chơi.
+               </div>
+            )}
+
             <button onClick={onBackToMenu} className="absolute top-4 left-4 text-gray-500 hover:text-red-500 font-bold z-50">
                &larr; Menu
             </button>
@@ -289,7 +302,7 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
 
             <div className="flex flex-col md:flex-row gap-8 w-full max-w-4xl items-stretch">
               <div className="flex-1 bg-white border-4 border-loto-red rounded-3xl p-6 shadow-xl flex flex-col items-center">
-                 <div className="text-5xl mb-4">🎤</div>
+                 <div className="text-5xl mb-4">🎱</div>
                  <h2 className="text-2xl font-bold mb-2 text-loto-red">Tạo Phòng</h2>
                  <p className="text-gray-500 text-sm mb-6 flex-1">Làm "Cái", bốc số.</p>
                  <button onClick={startHost} className="w-full bg-loto-red text-white py-3 rounded-xl font-bold hover:bg-red-700">
@@ -345,10 +358,17 @@ const LotoGame: React.FC<LotoGameProps> = ({ initialRoomId = '', onBackToMenu })
             </div>
 
             {isLocalhost && (
-                <div className="bg-red-50 border border-red-200 text-red-700 p-2 rounded mb-4 text-xs font-bold">
-                    ⚠️ Bạn đang chạy Localhost. Điện thoại sẽ không quét được!
-                    <br/>👉 Hãy nhìn vào Terminal (cửa sổ đen) chạy code, tìm dòng "Network" (ví dụ: http://192.168.1.5:5173).
-                    <br/>👉 Truy cập vào địa chỉ IP đó trên máy tính này TRƯỚC, rồi mới đưa điện thoại quét mã mới.
+                <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded mb-4 text-xs font-bold text-left">
+                    ⚠️ LƯU Ý QUAN TRỌNG:
+                    <br/>Lỗi 502 nghĩa là Server trung gian bị quá tải hoặc bạn tắt game.
+                    <br/>
+                    <br/>👉 <b>Giải pháp ỔN ĐỊNH NHẤT (localhost.run):</b>
+                    <br/>1. Giữ nguyên cửa sổ chạy game (npm run dev).
+                    <br/>2. Mở cửa sổ CMD/Terminal mới.
+                    <br/>3. Copy lệnh này và Enter:
+                    <br/><code className="bg-white px-1 border select-all cursor-pointer text-blue-600 block mt-1 p-1 text-center font-mono">ssh -R 80:localhost:5173 nokey@localhost.run</code>
+                    <br/>4. Chờ nó hiện dòng chữ có đuôi <b>.lhr.life</b> hoặc <b>.localhost.run</b>
+                    <br/>5. Vào link đó là chơi được ngay!
                 </div>
             )}
 

@@ -1,20 +1,10 @@
 import { PeerMessage } from '../types';
 import { Peer } from 'peerjs';
 
-// Expanded Public STUN List to maximize direct connection chances
+// Minimal STUN List for Mobile Stability
 const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun3.l.google.com:19302' },
-  { urls: 'stun:stun4.l.google.com:19302' },
-  { urls: 'stun:stun.ekiga.net' },
-  { urls: 'stun:stun.ideasip.com' },
-  { urls: 'stun:stun.schlund.de' },
-  { urls: 'stun:stun.voiparound.com' },
-  { urls: 'stun:stun.voipbuster.com' },
-  { urls: 'stun:stun.voipstunt.com' },
-  { urls: 'stun:stun.voxgratia.org' }
+  { urls: 'stun:stun1.l.google.com:19302' }
 ];
 
 const CONNECTION_CONFIG = {
@@ -31,7 +21,6 @@ export class PeerService {
 
   constructor() {}
 
-  // Helper to get config mixing default STUN + Custom TURN
   private getPeerConfig() {
     let iceServers: any[] = [...DEFAULT_ICE_SERVERS];
     
@@ -41,11 +30,11 @@ export class PeerService {
             const custom = JSON.parse(stored);
             if (custom.turnUrl && custom.turnUser && custom.turnPass) {
                 console.log("Using Custom TURN Server");
-                iceServers.unshift({
+                iceServers = [{
                     urls: custom.turnUrl,
                     username: custom.turnUser,
                     credential: custom.turnPass
-                });
+                }, ...iceServers]; // Prioritize TURN
             }
         }
     } catch (e) {
@@ -53,30 +42,27 @@ export class PeerService {
     }
 
     return {
-      debug: 1, // 0: None, 1: Errors, 2: Warnings, 3: All
+      debug: 1, 
       config: {
         iceServers: iceServers,
-        iceCandidatePoolSize: 10,
+        // CRITICAL FOR MOBILE: Reduce this to 1. 
+        iceCandidatePoolSize: 1, 
       }
     };
   }
 
-  // --- HEARTBEAT SYSTEM (CRITICAL FOR MOBILE) ---
+  // --- HEARTBEAT SYSTEM ---
   private startHeartbeat() {
       if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
-      
-      // Ping every 3 seconds to keep NAT open on 4G/Mobile
       this.heartbeatInterval = setInterval(() => {
           const pingMsg = { type: 'PING' };
-          
           if (this.hostConnection && this.hostConnection.open) {
               this.hostConnection.send(pingMsg);
           }
-          
           this.connections.forEach(conn => {
               if (conn.open) conn.send(pingMsg);
           });
-      }, 3000); 
+      }, 2000); // Faster heartbeat (2s) to keep NAT open
   }
 
   private stopHeartbeat() {
@@ -90,6 +76,7 @@ export class PeerService {
   }
 
   private createHostPeer(onOpen: (id: string) => void, onData: (data: PeerMessage, conn: any) => void, retryCount = 0) {
+    // Short ID for easier typing if needed, but robust enough
     const randomId = Math.floor(1000 + Math.random() * 9000).toString();
     const fullId = `loto-${randomId}`;
 
@@ -99,7 +86,6 @@ export class PeerService {
         // @ts-ignore
         this.peer = new Peer(fullId, this.getPeerConfig());
     } catch (e) {
-        console.error("Error creating peer", e);
         if (retryCount < 3) setTimeout(() => this.createHostPeer(onOpen, onData, retryCount + 1), 1000);
         return;
     }
@@ -113,22 +99,20 @@ export class PeerService {
 
     this.peer.on('connection', (conn: any) => {
       this.connections.push(conn);
-      
       conn.on('data', (data: any) => {
-        if (data.type === 'PING') return; // Ignore pings
+        if (data.type === 'PING') return;
         onData(data, conn);
       });
-      
       conn.on('close', () => {
         this.connections = this.connections.filter(c => c !== conn);
       });
-      
       conn.on('error', (err: any) => console.error("Conn Error:", err));
     });
 
     this.peer.on('error', (err: any) => {
       console.error('Host Error:', err);
-      if (err.type === 'unavailable-id' && retryCount < 5) {
+      // Auto retry if ID taken
+      if (err.type === 'unavailable-id') {
             setTimeout(() => this.createHostPeer(onOpen, onData, retryCount + 1), 500);
       }
     });
@@ -142,38 +126,39 @@ export class PeerService {
         // @ts-ignore
         this.peer = new Peer(undefined, this.getPeerConfig());
     } catch (e) {
-        onError("Lỗi khởi tạo mạng.");
+        onError("Lỗi khởi tạo mạng. Vui lòng tải lại trang.");
         return;
     }
 
-    let connectionMade = false;
     let connectTimeout: any = null;
+    let hasConnected = false;
 
     this.peer.on('open', (id: string) => {
       this.myId = id;
       const hostId = `loto-${hostCode}`;
+      console.log(`My Peer ID: ${id}. Connecting to ${hostId}...`);
       
       const conn = this.peer!.connect(hostId, CONNECTION_CONFIG);
 
       if (!conn) {
-          onError("Lỗi kết nối.");
+          onError("Không thể tạo kết nối.");
           return;
       }
 
-      // 15s Timeout for Mobile
+      // Hard timeout for connection attempt (10s)
       connectTimeout = setTimeout(() => {
-          if (!connectionMade) {
+          if (!hasConnected) {
                conn.close();
-               onError("Kết nối quá lâu. Hãy dùng QR Code hoặc Link mời (có chứa cấu hình mạng).");
+               onError("Kết nối quá lâu (Timeout). Hãy thử lại hoặc dùng Wifi khác.");
           }
-      }, 15000);
+      }, 10000);
 
       conn.on('open', () => {
         clearTimeout(connectTimeout);
-        connectionMade = true;
+        hasConnected = true;
         this.hostConnection = conn;
         this.startHeartbeat();
-        console.log("Connected to Host");
+        console.log("Connected to Host successfully");
         onOpen();
       });
 
@@ -183,19 +168,30 @@ export class PeerService {
       });
 
       conn.on('close', () => {
-          if (connectionMade) onError("Mất kết nối với Host.");
+          if (hasConnected) onError("Đã mất kết nối với Host.");
+      });
+      
+      // Explicitly handle ICE failures (common on mobile)
+      // @ts-ignore
+      conn.on('iceStateChanged', (state) => {
+          if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+              console.log("ICE State:", state);
+          }
       });
     });
 
     this.peer.on('error', (err: any) => {
        console.error('Player Error', err);
        clearTimeout(connectTimeout);
+       
        if (err.type === 'peer-unavailable') {
-           onError(`Không tìm thấy phòng "${hostCode}".`);
-       } else if (err.type === 'network' || err.type === 'disconnected') {
-           onError('Lỗi mạng/Tường lửa. Hãy dùng Link/QR Code của Host để tự động cấu hình.');
+           onError(`Không tìm thấy phòng "${hostCode}". Host có đang mở không?`);
+       } else if (err.type === 'network' || err.type === 'disconnected' || err.type === 'webrtc') {
+           onError('Lỗi mạng/Tường lửa (WebRTC). Hãy dùng 4G hoặc Wifi khác.');
+       } else if (err.type === 'browser-incompatible') {
+           onError('Trình duyệt không hỗ trợ. Hãy dùng Chrome hoặc Safari mới nhất.');
        } else {
-           onError(`Lỗi: ${err.type}`);
+           onError(`Lỗi kết nối: ${err.type}`);
        }
     });
   }

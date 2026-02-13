@@ -18,7 +18,7 @@ const LotoTicket: React.FC<LotoTicketProps> = ({ board, onCellClick, readOnly = 
         {board.rows.map((row, rIdx) => {
           const isRowWon = checkRowWin(row);
           return (
-            <div key={rIdx} className={`flex justify-between items-center gap-1 p-1 rounded ${isRowWon ? 'bg-green-100 ring-2 ring-green-500 transition-all duration-500' : ''}`}>
+            <div key={rIdx} className={`grid grid-cols-6 gap-1 p-1 rounded ${isRowWon ? 'bg-green-100 ring-2 ring-green-500 transition-all duration-500' : ''}`}>
               {row.map((cell, cIdx) => (
                 <Cell 
                   key={cIdx} 
@@ -43,7 +43,8 @@ interface CellProps {
 
 const Cell: React.FC<CellProps> = ({ cell, onClick, readOnly }) => {
   if (cell.value === null) {
-    return <div className="w-full h-10 sm:h-12 bg-gray-100 rounded opacity-50" />;
+    // Empty cell placeholder
+    return <div className="w-full h-10 sm:h-12 bg-gray-50 rounded border border-gray-100/50" />;
   }
 
   return (
@@ -52,10 +53,10 @@ const Cell: React.FC<CellProps> = ({ cell, onClick, readOnly }) => {
       disabled={readOnly}
       className={`
         w-full h-10 sm:h-12 flex items-center justify-center rounded font-bold text-lg sm:text-xl
-        transition-all duration-200 border-2
+        transition-all duration-200 border-2 shadow-sm
         ${cell.marked 
-          ? 'bg-loto-red text-white border-loto-red transform scale-105 shadow-md' 
-          : 'bg-white text-gray-800 border-gray-300 hover:border-loto-red'}
+          ? 'bg-loto-red text-white border-loto-red transform scale-105 z-10' 
+          : 'bg-white text-gray-800 border-gray-200 hover:border-loto-red'}
       `}
     >
       {cell.value}

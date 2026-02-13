@@ -504,10 +504,11 @@ const CardGame: React.FC<CardGameProps> = ({ initialRoomId = '', onBackToMenu })
                  </div>
 
                  {isLocalhost && (
-                    <div className="bg-red-500/20 border border-red-500 text-white p-2 rounded mb-4 text-xs font-bold">
-                        ⚠️ Bạn đang chạy Localhost. Điện thoại sẽ không quét được!
-                        <br/>👉 Hãy nhìn vào Terminal (cửa sổ đen) chạy code, tìm dòng "Network" (ví dụ: http://192.168.1.5:5173).
-                        <br/>👉 Truy cập vào địa chỉ IP đó trên máy tính này TRƯỚC, rồi mới đưa điện thoại quét mã mới.
+                    <div className="bg-red-500/20 border border-red-500 text-white p-2 rounded mb-4 text-xs font-bold text-left">
+                        ⚠️ Lỗi 502/Connection: 
+                        <br/>1. Đảm bảo game (npm run dev) đang chạy.
+                        <br/>2. Dùng lệnh này thay cho Serveo:
+                        <br/><code className="bg-black/50 px-1 border select-all cursor-pointer text-yellow-300 block mt-1 p-1 text-center">ssh -R 80:localhost:5173 nokey@localhost.run</code>
                     </div>
                 )}
 
